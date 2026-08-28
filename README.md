@@ -1,32 +1,23 @@
 # PulseHost
 
-Hébergement bot Discord pro — sans connexion, upload de fichiers, console live.
+Hébergement bot Discord pro — panel web avec upload de fichiers, ZIP, console live.
 
-## Lancer
+## Liens
+
+- **Site live** : https://pulsehost.vercel.app
+- **Panel** : https://pulsehost.vercel.app/panel
+- **GitHub** : https://github.com/nokzidev-netizen/pulsehost
+
+## Lancer en local
 
 ```bash
 npm install
 npm start
 ```
 
-- Landing : http://localhost:3000
-- **Panel client** : http://localhost:3000/panel
+## Déploiement
 
-## Utilisation
+- **Vercel** : connecté au repo GitHub, auto-deploy sur push
+- **Render** : `render.yaml` inclus (alternative pour bots 24/7)
 
-1. Ouvre `/panel` — ton espace client est créé automatiquement
-2. **Nouveau projet** → un template `index.js` est généré
-3. Upload ton bot (ZIP ou fichiers) dans l'onglet **Fichiers**
-4. **Paramètres** → token Discord, fichier de démarrage (`index.js`, `main.py`...), variables d'env
-5. **Démarrer** → suis les logs dans **Console**
-
-## Fonctionnalités
-
-- Upload ZIP / fichiers individuels
-- Éditeur de code intégré
-- Fichier de démarrage configurable
-- Node.js & Python
-- Variables d'environnement
-- Console live (stdout/stderr)
-- Start / Stop / Restart
-- Auto-start au boot serveur
+> Note : Vercel est serverless — l'interface fonctionne, mais les bots Discord 24/7 nécessitent Render ou un VPS pour des processus persistants.
