@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — PulseHost</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+</head>
+<body class="dashboard-body">
+  <aside class="sidebar">
+    <a href="/" class="logo sidebar-logo">
+      <svg width="24" height="24" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="8" fill="url(#g)"/><path d="M8 18V10l6 4-6 4zm6 0V10l6 4-6 4z" fill="#fff"/><defs><linearGradient id="g" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#3b82f6"/></linearGradient></defs></svg>
+      PulseHost
+    </a>
+    <nav class="sidebar-nav">
+      <a href="#" class="sidebar-link active" data-view="overview">
+        <span class="sidebar-icon">📊</span> Vue d'ensemble
+      </a>
+      <a href="#" class="sidebar-link" data-view="deploy">
+        <span class="sidebar-icon">🚀</span> Déployer
+      </a>
+      <a href="#" class="sidebar-link" data-view="bots">
+        <span class="sidebar-icon">🤖</span> Mes bots
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div>
+          <div class="user-name" id="user-name">—</div>
+          <div class="user-plan" id="user-plan">Free</div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm btn-block" id="btn-logout">Déconnexion</button>
+    </div>
+  </aside>
+
+  <main class="dash-main">
+    <header class="dash-header">
+      <div>
+        <h1 id="page-title">Vue d'ensemble</h1>
+        <p class="dash-sub" id="page-sub">Bienvenue sur ton panel PulseHost</p>
+      </div>
+      <div class="dash-header-status">
+        <span class="status-pill online" id="server-status">
+          <span class="status-dot"></span> Serveur en ligne
+        </span>
+      </div>
+    </header>
+
+    <!-- Overview -->
+    <div class="view active" id="view-overview">
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-box-label">Mes bots</div>
+          <div class="stat-box-value" id="stat-my-bots">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-label">En ligne</div>
+          <div class="stat-box-value green" id="stat-my-online">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-label">Uptime serveur</div>
+          <div class="stat-box-value" id="stat-uptime">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-box-label">Limite</div>
+          <div class="stat-box-value blue" id="stat-limit">3</div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Bots récents</h3>
+            <button class="btn btn-ghost btn-sm" id="goto-bots">Voir tout →</button>
+          </div>
+          <div id="recent-bots" class="recent-list">
+            <div class="empty-mini">Aucun bot déployé</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Démarrage rapide</h3></div>
+          <ol class="quick-steps">
+            <li>Va sur le <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a></li>
+            <li>Crée une application → onglet <strong>Bot</strong> → copie le token</li>
+            <li>Active <strong>MESSAGE CONTENT INTENT</strong></li>
+            <li>Colle le token dans <strong>Déployer</strong> et c'est parti !</li>
+          </ol>
+          <button class="btn btn-primary btn-block" id="quick-deploy">Déployer un bot</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deploy -->
+    <div class="view" id="view-deploy">
+      <div class="panel deploy-panel">
+        <div class="panel-head">
+          <h3>Déployer un nouveau bot</h3>
+          <span class="tag tag-green">Instantané</span>
+        </div>
+        <form id="deploy-form" class="deploy-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nom du bot</label>
+              <input type="text" id="bot-name" placeholder="Mon Bot" maxlength="32" required />
+            </div>
+            <div class="form-group flex-1">
+              <label>Token Discord</label>
+              <div class="input-eye">
+                <input type="password" id="bot-token" placeholder="Colle ton token ici..." required autocomplete="off" />
+                <button type="button" class="eye-btn" id="toggle-token">👁</button>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" id="deploy-btn">
+            🚀 Déployer maintenant
+          </button>
+        </form>
+        <div class="form-error hidden" id="deploy-error"></div>
+        <div class="form-success hidden" id="deploy-success"></div>
+        <div class="info-box">
+          💡 Ton bot répondra à <code>!ping</code>, <code>!help</code> et <code>!status</code> une fois en ligne.
+        </div>
+      </div>
+    </div>
+
+    <!-- Bots list -->
+    <div class="view" id="view-bots">
+      <div class="panel-head-row">
+        <h3>Mes bots</h3>
+        <button class="btn btn-ghost btn-sm" id="refresh-bots">↻ Actualiser</button>
+      </div>
+      <div id="bots-container" class="bots-list"></div>
+    </div>
+
+    <!-- Bot detail (console) -->
+    <div class="view" id="view-console">
+      <button class="btn btn-ghost btn-sm back-btn" id="back-to-bots">← Retour</button>
+      <div class="console-layout">
+        <div class="panel bot-detail-panel">
+          <div class="bot-detail-head" id="console-bot-info"></div>
+          <div class="bot-detail-actions" id="console-actions"></div>
+          <div class="bot-metrics" id="console-metrics"></div>
+        </div>
+        <div class="panel console-panel">
+          <div class="panel-head">
+            <h3>Console live</h3>
+            <button class="btn btn-ghost btn-sm" id="refresh-logs">↻</button>
+          </div>
+          <div class="console" id="console-output">
+            <div class="console-line muted">En attente de logs...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast-container"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
