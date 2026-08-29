@@ -26,6 +26,11 @@ function init() {
     })
     .catch(() => {});
 
+  window.addEventListener('pulsehost-access-granted', () => {
+    loadProjects(false);
+    startSmartPolling();
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopPolling();
     else startSmartPolling();
