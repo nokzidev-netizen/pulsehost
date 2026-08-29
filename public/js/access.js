@@ -64,18 +64,59 @@ function showAccessGate() {
 }
 
 async function ensureSiteAccess() {
+  const overlay = document.getElementById('access-gate');
+  let required = true;
+  let granted = false;
+
   try {
     const res = await fetch('/api/access/status', {
       headers: { 'X-Access-Token': getAccessToken() || '' },
     });
     const data = await res.json();
-    if (!data.required || data.granted) return true;
-  } catch { /* gate below */ }
+    required = !!data.required;
+    granted = !!data.granted;
+  } catch {
+    required = true;
+    granted = false;
+  }
+
+  if (!required || granted) {
+    overlay?.classList.add('hidden');
+    document.body.classList.remove('access-locked', 'access-checking');
+    return true;
+  }
+
+  setAccessToken(null);
+  document.body.classList.add('access-locked');
+  overlay?.classList.remove('hidden');
 
   let ok = false;
   while (!ok) {
     ok = await showAccessGate();
     if (!ok) await new Promise((r) => setTimeout(r, 400));
   }
+
+  document.body.classList.remove('access-checking');
   return true;
+}
+
+function lockSiteAccess() {
+  setAccessToken(null);
+  return ensureSiteAccess();
+}
+
+function bootAccessGate() {
+  if (document.getElementById('access-gate')) {
+    document.body.classList.add('access-checking');
+  }
+  return ensureSiteAccess();
+}
+
+window.lockSiteAccess = lockSiteAccess;
+window.pulseAccessReady = bootAccessGate();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    window.pulseAccessReady = bootAccessGate();
+  });
 }

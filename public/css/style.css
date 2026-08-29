@@ -250,6 +250,8 @@ a:hover { text-decoration: underline; }
 }
 .access-gate.hidden { display: none !important; }
 body.access-locked { overflow: hidden; }
+body.access-checking > *:not(#access-gate) { visibility: hidden; }
+body.access-locked > *:not(#access-gate) { pointer-events: none; user-select: none; }
 .access-gate-card {
   width: 100%; max-width: 380px; background: var(--bg2, #12121a);
   border: 1px solid var(--border, #2a2a3a); border-radius: 16px;

@@ -17,7 +17,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 function init() {
   $('#client-id-display').textContent = getClientId().slice(0, 8) + '...';
   bindEvents();
-  ensureSiteAccess().then(() => {
+  (window.pulseAccessReady || ensureSiteAccess()).then(() => {
     loadProjects(false);
     startSmartPolling();
   });
@@ -29,6 +29,9 @@ function init() {
 }
 
 function bindEvents() {
+  $('#btn-lock-site')?.addEventListener('click', () => {
+    if (typeof lockSiteAccess === 'function') lockSiteAccess();
+  });
   $('#btn-new-project').addEventListener('click', openNewModal);
   $('#empty-new-project')?.addEventListener('click', openNewModal);
   $('#modal-close').addEventListener('click', closeNewModal);
