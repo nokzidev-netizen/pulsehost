@@ -30,7 +30,6 @@ function getRateKey(req) {
 
 function rateLimit({ max = 120, windowMs = WINDOW_MS } = {}) {
   return (req, res, next) => {
-    if (req.path.startsWith('/api/access/')) return next();
     const key = getRateKey(req);
     const now = Date.now();
     let bucket = RATE_BUCKETS.get(key);

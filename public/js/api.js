@@ -1,13 +1,21 @@
 const CLIENT_KEY = 'pulsehost_client_id';
-const ACCESS_TOKEN_KEY = 'pulsehost_access_token';
 
 function getClientId() {
-  let id = localStorage.getItem(CLIENT_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(CLIENT_KEY, id);
+  try {
+    let id = localStorage.getItem(CLIENT_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(CLIENT_KEY, id);
+    }
+    return id;
+  } catch {
+    let id = sessionStorage.getItem(CLIENT_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem(CLIENT_KEY, id);
+    }
+    return id;
   }
-  return id;
 }
 
 async function api(path, options = {}) {
@@ -15,12 +23,6 @@ async function api(path, options = {}) {
     'X-Client-Id': getClientId(),
     ...options.headers,
   };
-
-  let accessToken = null;
-  try {
-    accessToken = localStorage.getItem(ACCESS_TOKEN_KEY) || sessionStorage.getItem(ACCESS_TOKEN_KEY);
-  } catch { /* ignore */ }
-  if (accessToken) headers['X-Access-Token'] = accessToken;
 
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
@@ -38,11 +40,6 @@ async function api(path, options = {}) {
         throw new Error(plain.slice(0, 120) || `Erreur serveur (${res.status})`);
       }
     }
-  }
-  if (res.status === 401 && data.code === 'ACCESS_REQUIRED') {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    if (typeof ensureSiteAccess === 'function') await ensureSiteAccess();
-    return api(path, options);
   }
   if (!res.ok) throw new Error(data.error || `Erreur serveur (${res.status})`);
   return data;

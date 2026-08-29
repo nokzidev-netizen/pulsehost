@@ -18,18 +18,8 @@ function init() {
   bindEvents();
   const clientEl = $('#client-id-display');
   if (clientEl) clientEl.textContent = getClientId().slice(0, 8) + '...';
-
-  ensureSiteAccess()
-    .then(() => {
-      loadProjects(false);
-      startSmartPolling();
-    })
-    .catch(() => {});
-
-  window.addEventListener('pulsehost-access-granted', () => {
-    loadProjects(false);
-    startSmartPolling();
-  });
+  loadProjects(false);
+  startSmartPolling();
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopPolling();
@@ -38,9 +28,6 @@ function init() {
 }
 
 function bindEvents() {
-  $('#btn-lock-site')?.addEventListener('click', () => {
-    if (typeof lockSiteAccess === 'function') lockSiteAccess();
-  });
   $('#btn-new-project').addEventListener('click', openNewModal);
   $('#empty-new-project')?.addEventListener('click', openNewModal);
   $('#modal-close').addEventListener('click', closeNewModal);

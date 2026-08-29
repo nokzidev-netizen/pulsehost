@@ -9,8 +9,7 @@ const storage = require('./storage');
 const botManager = require('./botManager');
 const fileManager = require('./files');
 const { extractArchiveToWorkspace } = require('./archiveExtract');
-const siteAccess = require('./siteAccess');
-const { applySecurityHeaders, rateLimit, strictRateLimit, blockScanners } = require('./security');
+const { applySecurityHeaders, rateLimit, blockScanners } = require('./security');
 const vm = require('./vm');
 const cloudvm = require('./cloudvm');
 const vmSession = require('./vmSession');
@@ -60,15 +59,8 @@ function clientMiddleware(req, res, next) {
   next();
 }
 
-function accessMiddleware(req, res, next) {
-  if (!siteAccess.isAccessRequired()) return next();
-  const token = req.headers['x-access-token'];
-  if (siteAccess.validateAccessToken(token)) return next();
-  return res.status(401).json({ error: 'Code d\'accès requis', code: 'ACCESS_REQUIRED' });
-}
-
 function protectedRoute(...handlers) {
-  return [clientMiddleware, accessMiddleware, ...handlers];
+  return [clientMiddleware, ...handlers];
 }
 
 function ownsBot(bot, clientId) {
@@ -89,34 +81,6 @@ app.get('/api/stats', (_req, res) => {
   res.json({ ...stats, uptime: Math.floor(process.uptime()) });
 });
 
-app.get('/api/access/status', (req, res) => {
-  const token = req.headers['x-access-token'];
-  res.json({
-    required: siteAccess.isAccessRequired(),
-    granted: siteAccess.validateAccessToken(token),
-  });
-});
-
-app.post('/api/access/verify', strictRateLimit(30), async (req, res) => {
-  if (!siteAccess.isAccessRequired()) {
-    return res.json({ ok: true, token: siteAccess.createAccessToken() });
-  }
-
-  const { code } = req.body || {};
-  if (!siteAccess.verifyAccessCode(code)) {
-    return res.status(403).json({ error: 'Code d\'accès incorrect' });
-  }
-
-  const clientId = getClientId(req) || 'anonymous';
-  notifyAccessAsync(req, clientId);
-
-  res.json({ ok: true, token: siteAccess.createAccessToken() });
-});
-
-function notifyAccessAsync(req, clientId) {
-  siteAccess.notifyAccess(req, clientId).catch(() => {});
-}
-
 // ─── Projects ───
 app.get('/api/projects', ...protectedRoute((req, res) => {
   const bots = storage.getBotsAccessibleByClient(req.clientId).map((b) => ({
@@ -128,30 +92,34 @@ app.get('/api/projects', ...protectedRoute((req, res) => {
 }));
 
 app.post('/api/projects', ...protectedRoute((req, res) => {
-  const { name } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Nom du projet requis' });
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Nom du projet requis' });
 
-  const id = uuidv4();
-  fileManager.createDefaultProject(id);
+    const id = uuidv4();
+    storage.createWorkspace(id);
+    fileManager.createDefaultProject(id);
 
-  const bot = {
-    id,
-    clientId: req.clientId,
-    name: name.trim().slice(0, 48),
-    token: '',
-    startFile: 'index.js',
-    runtime: 'nodejs',
-    env: {},
-    status: 'offline',
-    autoStart: false,
-    hostMode: 'cloud',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+    const bot = {
+      id,
+      clientId: req.clientId,
+      name: name.trim().slice(0, 48),
+      token: '',
+      startFile: 'index.js',
+      runtime: 'nodejs',
+      env: {},
+      status: 'offline',
+      autoStart: false,
+      hostMode: 'cloud',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-  storage.addBot(bot);
-  storage.createWorkspace(id);
-  res.status(201).json(botManager.sanitizeBot(bot));
+    storage.addBot(bot);
+    res.status(201).json(botManager.sanitizeBot(bot));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Impossible de créer le projet' });
+  }
 }));
 
 app.get('/api/projects/:id/status', ...protectedRoute((req, res) => {
