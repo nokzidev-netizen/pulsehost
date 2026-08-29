@@ -18,12 +18,27 @@ function init() {
   bindEvents();
   const clientEl = $('#client-id-display');
   if (clientEl) clientEl.textContent = getClientId().slice(0, 8) + '...';
-  loadProjects(false);
-  startSmartPolling();
+
+  syncProjectsToServer()
+    .then(() => loadProjects(false))
+    .then(() => startSmartPolling())
+    .catch(() => {
+      loadProjects(false);
+      startSmartPolling();
+    });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopPolling();
     else startSmartPolling();
+  });
+}
+
+async function syncProjectsToServer() {
+  const cached = loadCachedProjects();
+  if (!cached.length) return;
+  await api('/api/projects/sync', {
+    method: 'POST',
+    body: JSON.stringify({ projects: cached }),
   });
 }
 

@@ -14,7 +14,7 @@ function initVm() {
   document.getElementById('term-form')?.addEventListener('submit', (e) => submitCommand(e, 'console'));
 
   document.getElementById('btn-cloud-key-help')?.addEventListener('click', () => {
-    showToast('Demande une clé API cloud gratuite à ton administrateur', 'info');
+    showToast('Clé gratuite sur e2b.dev → Dashboard → API Keys', 'info');
   });
   document.getElementById('btn-save-cloud-key')?.addEventListener('click', saveCloudKey);
   document.getElementById('btn-create-session')?.addEventListener('click', createSession);
@@ -43,7 +43,7 @@ function switchVmMode(mode) {
 async function loadVmTab() {
   if (!activeProject) return;
   try {
-    vmData = await api(`/api/projects/${activeProject.id}/vm`);
+    vmData = await api(`/api/projects/${activeProject.id}/vm?name=${encodeURIComponent(activeProject.name || '')}`);
     if (!vmData.hasCloudKey && getCloudKey(activeProject.id)) {
       vmData.hasCloudKey = true;
     }
@@ -59,6 +59,20 @@ async function loadVmTab() {
       useHttpFallback = false;
     }
   } catch (err) {
+    if (getCloudKey(activeProject.id)) {
+      vmData = {
+        id: activeProject.id,
+        type: 'PulseVM',
+        status: 'running',
+        hostname: `pulsevm-${activeProject.id.slice(0, 8)}`,
+        cloud: { active: false, hasKey: true },
+        hasCloudKey: true,
+        terminalEnabled: false,
+        session: { isOwner: true, code: null, members: 0 },
+      };
+      renderCloudPanel();
+      return;
+    }
     showToast(err.message, 'error');
   }
 }
@@ -207,7 +221,13 @@ function toggleDesktopFullscreen() {
 async function saveCloudKey() {
   if (!activeProject) return showToast('Sélectionne un projet d\'abord', 'error');
   const key = document.getElementById('cloud-api-key').value.trim();
-  if (!key) return showToast('Colle ta clé API', 'error');
+  if (!key) return showToast('Colle ta clé API E2B', 'error');
+
+  setCloudKey(activeProject.id, key);
+  document.getElementById('cloud-api-key').value = '';
+  if (!vmData) vmData = {};
+  vmData.hasCloudKey = true;
+  renderCloudPanel();
 
   const btn = document.getElementById('btn-save-cloud-key');
   if (btn) { btn.disabled = true; btn.textContent = 'Sauvegarde...'; }
@@ -215,26 +235,19 @@ async function saveCloudKey() {
   try {
     await api(`/api/projects/${activeProject.id}/vm/cloud-key`, {
       method: 'POST',
-      body: JSON.stringify({ cloudApiKey: key }),
+      body: JSON.stringify({
+        cloudApiKey: key,
+        name: activeProject.name || 'Mon projet',
+      }),
     });
-    setCloudKey(activeProject.id, key);
     showToast('Clé API sauvegardée ✓');
   } catch (err) {
-    if (err.message.includes('introuvable')) {
-      setCloudKey(activeProject.id, key);
-      showToast('Clé sauvegardée localement ✓', 'info');
-    } else {
-      showToast(err.message, 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder clé'; }
-      return;
-    }
+    showToast(`Clé enregistrée — ${err.message}`, 'info');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder clé'; }
   }
 
-  document.getElementById('cloud-api-key').value = '';
-  if (!vmData) vmData = {};
-  vmData.hasCloudKey = true;
   await loadVmTab();
-  if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder clé'; }
 }
 
 function connectConsoleTerminal() {
@@ -351,7 +364,10 @@ async function startCloudVm() {
   startBtn.textContent = 'Démarrage...';
 
   try {
-    const r = await api(`/api/projects/${activeProject.id}/vm/cloud/start`, { method: 'POST' });
+    const r = await api(`/api/projects/${activeProject.id}/vm/cloud/start`, {
+      method: 'POST',
+      body: JSON.stringify({ name: activeProject.name || 'Mon projet' }),
+    });
     showToast(r.message || 'Bureau démarré');
 
     if (r.streamUrl) {

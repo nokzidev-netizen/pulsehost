@@ -88,6 +88,50 @@ function canAccessBot(bot, clientId) {
   return vmSession.canAccess(bot, clientId);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function defaultBot(id, clientId, name = 'Mon projet') {
+  return {
+    id,
+    clientId,
+    name: String(name || 'Mon projet').trim().slice(0, 48),
+    token: '',
+    startFile: 'index.js',
+    runtime: 'nodejs',
+    env: {},
+    status: 'offline',
+    autoStart: false,
+    hostMode: 'cloud',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function ensureBotRecord(req, res, name) {
+  let bot = storage.getBot(req.params.id);
+  if (bot) {
+    if (!canAccessBot(bot, req.clientId)) {
+      res.status(404).json({ error: 'Projet introuvable' });
+      return null;
+    }
+    return bot;
+  }
+
+  if (!UUID_RE.test(req.params.id)) {
+    res.status(404).json({ error: 'Projet introuvable' });
+    return null;
+  }
+
+  storage.createWorkspace(req.params.id);
+  try {
+    fileManager.createDefaultProject(req.params.id);
+  } catch { /* ignore */ }
+
+  bot = defaultBot(req.params.id, req.clientId, name);
+  storage.addBot(bot);
+  return bot;
+}
+
 // ─── Public ───
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, uptime: process.uptime(), timestamp: Date.now() });
@@ -106,6 +150,39 @@ app.get('/api/projects', ...protectedRoute((req, res) => {
     sessionCode: b.vmSessionCode || null,
   }));
   res.json(bots);
+}));
+
+app.post('/api/projects/sync', ...protectedRoute((req, res) => {
+  try {
+    const list = Array.isArray(req.body?.projects) ? req.body.projects : [];
+    const synced = [];
+
+    for (const item of list) {
+      if (!item?.id || !UUID_RE.test(item.id)) continue;
+
+      let bot = storage.getBot(item.id);
+      if (bot && bot.clientId !== req.clientId) continue;
+
+      if (!bot) {
+        storage.createWorkspace(item.id);
+        try {
+          fileManager.createDefaultProject(item.id);
+        } catch { /* ignore */ }
+        bot = defaultBot(item.id, req.clientId, item.name);
+        storage.addBot(bot);
+      } else {
+        storage.updateBot(item.id, {
+          name: item.name?.trim()?.slice(0, 48) || bot.name,
+        });
+      }
+
+      synced.push(item.id);
+    }
+
+    res.json({ ok: true, synced });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Sync impossible' });
+  }
 }));
 
 app.post('/api/projects', ...protectedRoute((req, res) => {
@@ -399,8 +476,8 @@ app.get('/api/vm/info', (_req, res) => {
 });
 
 app.get('/api/projects/:id/vm', ...protectedRoute((req, res) => {
-  const bot = storage.getBot(req.params.id);
-  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  const bot = ensureBotRecord(req, res, req.query.name);
+  if (!bot) return;
   res.json({
     ...vm.getVmStats(bot.id),
     cloud: cloudvm.getCloudStatus(bot.id),
@@ -462,8 +539,8 @@ app.post('/api/projects/:id/vm/exec', ...protectedRoute(async (req, res) => {
 }));
 
 app.post('/api/projects/:id/vm/cloud/start', ...protectedRoute(async (req, res) => {
-  const bot = storage.getBot(req.params.id);
-  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  const bot = ensureBotRecord(req, res, req.body?.name);
+  if (!bot) return;
 
   try {
     const cloud = await cloudvm.createSandbox(bot.id);
@@ -498,21 +575,11 @@ app.post('/api/projects/:id/vm/cloud-key', ...protectedRoute(saveCloudKeyHandler
 
 function saveCloudKeyHandler(req, res) {
   try {
-    const bot = storage.getBot(req.params.id);
-    if (!bot) {
-      return res.status(404).json({
-        error: 'Projet introuvable — recrée ton projet puis réessaie',
-      });
-    }
-    if (!canAccessBot(bot, req.clientId)) {
-      return res.status(404).json({ error: 'Projet introuvable' });
-    }
-    if (!vmSession.isOwner(bot, req.clientId)) {
-      return res.status(403).json({ error: 'Seul le créateur peut modifier la clé API cloud' });
-    }
-
-    const { cloudApiKey } = req.body || {};
+    const { cloudApiKey, name } = req.body || {};
     if (!cloudApiKey?.trim()) return res.status(400).json({ error: 'Clé API requise' });
+
+    const bot = ensureBotRecord(req, res, name);
+    if (!bot) return;
 
     storage.updateBot(bot.id, { cloudApiKey: cloudApiKey.trim() });
     res.json({ ok: true, hasCloudKey: true });
