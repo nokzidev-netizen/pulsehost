@@ -204,6 +204,31 @@
 }
 
 /* VPS / PulseVM */
+.vm-mode-picker {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;
+}
+.vm-mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem;
+  padding: 1rem 1.25rem; background: var(--bg2); border: 2px solid var(--border);
+  border-radius: var(--radius-lg); cursor: pointer; text-align: left;
+  font-family: var(--font); transition: all 0.15s;
+}
+.vm-mode:hover { border-color: rgba(99,102,241,0.3); }
+.vm-mode.active { border-color: var(--primary); background: rgba(99,102,241,0.06); }
+.vm-mode-icon { font-size: 1.5rem; }
+.vm-mode-name { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+.vm-mode-desc { font-size: 0.75rem; color: var(--text3); }
+
+.vm-mode-panel { display: none; }
+.vm-mode-panel.active { display: block; }
+
+.key-link {
+  display: block; margin-top: 0.75rem; font-size: 0.8rem; color: var(--primary2); text-decoration: none;
+}
+.key-link:hover { text-decoration: underline; }
+
+.term-line.success { color: var(--green); }
+
 .vps-layout { display: grid; grid-template-columns: 300px 1fr; gap: 1rem; min-height: 520px; }
 .vps-sidebar { display: flex; flex-direction: column; gap: 0.75rem; }
 

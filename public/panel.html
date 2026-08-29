@@ -172,65 +172,117 @@
         </div>
       </div>
 
-      <!-- VPS / PulseVM -->
+      <!-- VPS -->
       <div class="tab-content" id="tab-vps">
-        <div class="vps-layout">
-          <div class="vps-sidebar">
-            <div class="panel-card vm-info-card">
-              <div class="vm-info-head">
-                <span class="vm-status-dot running"></span>
-                <div>
-                  <h3 id="vm-hostname">PulseVM</h3>
-                  <span class="vm-type" id="vm-type">Machine virtuelle intégrée — 100% gratuit</span>
+        <div class="vm-mode-picker">
+          <button type="button" class="vm-mode active" data-mode="console">
+            <span class="vm-mode-icon">💻</span>
+            <span class="vm-mode-name">VPS Console</span>
+            <span class="vm-mode-desc">Terminal intégré — gratuit</span>
+          </button>
+          <button type="button" class="vm-mode" data-mode="cloud">
+            <span class="vm-mode-icon">🖥</span>
+            <span class="vm-mode-name">Machine Virtuelle</span>
+            <span class="vm-mode-desc">Vraie VM Linux cloud</span>
+          </button>
+        </div>
+
+        <!-- Mode Console -->
+        <div class="vm-mode-panel active" id="vm-panel-console">
+          <div class="vps-layout">
+            <div class="vps-sidebar">
+              <div class="panel-card vm-info-card">
+                <div class="vm-info-head">
+                  <span class="vm-status-dot running"></span>
+                  <div>
+                    <h3 id="vm-hostname">PulseConsole</h3>
+                    <span class="vm-type">Terminal intégré PulseHost</span>
+                  </div>
+                </div>
+                <div class="vm-specs">
+                  <div class="vm-spec"><span>OS</span><strong id="vm-os">—</strong></div>
+                  <div class="vm-spec"><span>CPU</span><strong id="vm-cpu">—</strong></div>
+                  <div class="vm-spec"><span>RAM</span><strong id="vm-ram">—</strong></div>
+                  <div class="vm-spec"><span>Disque</span><strong id="vm-disk">—</strong></div>
+                  <div class="vm-spec"><span>Fichiers</span><strong id="vm-files-count">—</strong></div>
+                </div>
+                <div class="disk-bar"><div class="disk-bar-fill" id="vm-disk-bar"></div></div>
+              </div>
+              <div class="panel-card">
+                <h4>Actions rapides</h4>
+                <div class="quick-cmds">
+                  <button type="button" class="cmd-btn" data-cmd="dir">📂 dir</button>
+                  <button type="button" class="cmd-btn" data-cmd="npm install">📦 npm install</button>
+                  <button type="button" class="cmd-btn" data-cmd="node -v">🟢 node -v</button>
+                  <button type="button" class="cmd-btn" data-cmd="python --version">🐍 python</button>
                 </div>
               </div>
-              <div class="vm-specs" id="vm-specs">
-                <div class="vm-spec"><span>OS</span><strong id="vm-os">—</strong></div>
-                <div class="vm-spec"><span>CPU</span><strong id="vm-cpu">—</strong></div>
-                <div class="vm-spec"><span>RAM</span><strong id="vm-ram">—</strong></div>
-                <div class="vm-spec"><span>Disque</span><strong id="vm-disk">—</strong></div>
-                <div class="vm-spec"><span>Fichiers</span><strong id="vm-files-count">—</strong></div>
-              </div>
-              <div class="disk-bar"><div class="disk-bar-fill" id="vm-disk-bar"></div></div>
             </div>
-
-            <div class="panel-card">
-              <h4>Actions rapides</h4>
-              <div class="quick-cmds">
-                <button type="button" class="cmd-btn" data-cmd="dir">📂 dir</button>
-                <button type="button" class="cmd-btn" data-cmd="npm install">📦 npm install</button>
-                <button type="button" class="cmd-btn" data-cmd="node -v">🟢 node -v</button>
-                <button type="button" class="cmd-btn" data-cmd="python --version">🐍 python</button>
+            <div class="panel-card vm-terminal-card">
+              <div class="console-toolbar">
+                <h3>Terminal Console</h3>
+                <div>
+                  <span class="term-status" id="term-status">Déconnecté</span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-term-connect">Connecter</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-term-clear">Effacer</button>
+                </div>
               </div>
-            </div>
-
-            <div class="panel-card cloud-vm-card">
-              <h4>☁ Cloud VM (E2B)</h4>
-              <p class="cloud-desc">MicroVM cloud — $100 crédits gratuits sur e2b.dev</p>
-              <div id="cloud-status" class="cloud-status">—</div>
-              <button type="button" class="btn btn-primary btn-sm btn-block" id="btn-cloud-start">Démarrer Cloud VM</button>
-              <button type="button" class="btn btn-ghost btn-sm btn-block hidden" id="btn-cloud-stop">Arrêter Cloud VM</button>
+              <div class="vm-terminal" id="vm-terminal"></div>
+              <form id="term-form" class="term-input-row">
+                <span class="term-prompt">$</span>
+                <input type="text" id="term-input" placeholder="Tape une commande..." autocomplete="off" disabled />
+              </form>
+              <div class="vercel-warn hidden" id="vm-vercel-warn">⚠️ Connecte-toi en local ou Render pour le terminal live.</div>
             </div>
           </div>
+        </div>
 
-          <div class="panel-card vm-terminal-card">
-            <div class="console-toolbar">
-              <h3>Terminal PulseVM</h3>
-              <div>
-                <span class="term-status" id="term-status">Déconnecté</span>
-                <button type="button" class="btn btn-ghost btn-sm" id="btn-term-connect">Connecter</button>
-                <button type="button" class="btn btn-ghost btn-sm" id="btn-term-clear">Effacer</button>
+        <!-- Mode Machine Virtuelle -->
+        <div class="vm-mode-panel" id="vm-panel-cloud">
+          <div class="vps-layout">
+            <div class="vps-sidebar">
+              <div class="panel-card">
+                <h4>Clé API Cloud</h4>
+                <p class="cloud-desc">Gratuit · Sans carte bancaire · 100$ de crédits offerts</p>
+                <div class="form-group">
+                  <input type="password" id="cloud-api-key" placeholder="Colle ta clé API ici..." autocomplete="off" />
+                </div>
+                <button type="button" class="btn btn-primary btn-sm btn-block" id="btn-save-cloud-key">Sauvegarder la clé</button>
+                <a href="https://e2b.dev/dashboard?tab=keys" target="_blank" rel="noopener" class="key-link">→ Obtenir une clé gratuite (sans CB)</a>
+              </div>
+              <div class="panel-card vm-info-card">
+                <div class="vm-info-head">
+                  <span class="vm-status-dot" id="cloud-dot"></span>
+                  <div>
+                    <h3 id="cloud-hostname">PulseCloud VM</h3>
+                    <span class="vm-type" id="cloud-status-text">Hors ligne</span>
+                  </div>
+                </div>
+                <div class="vm-specs">
+                  <div class="vm-spec"><span>OS</span><strong>Linux Ubuntu</strong></div>
+                  <div class="vm-spec"><span>CPU</span><strong>2 vCPU</strong></div>
+                  <div class="vm-spec"><span>RAM</span><strong>512 Mo</strong></div>
+                  <div class="vm-spec"><span>Disque</span><strong>10 Go</strong></div>
+                </div>
+                <button type="button" class="btn btn-success btn-sm btn-block" id="btn-cloud-start">▶ Démarrer la VM</button>
+                <button type="button" class="btn btn-ghost btn-sm btn-block hidden" id="btn-cloud-stop">⏹ Arrêter la VM</button>
               </div>
             </div>
-            <div class="vm-terminal" id="vm-terminal">
-              <div class="term-line muted">Clique "Connecter" pour ouvrir le terminal...</div>
-            </div>
-            <form id="term-form" class="term-input-row">
-              <span class="term-prompt">$</span>
-              <input type="text" id="term-input" placeholder="Tape une commande..." autocomplete="off" disabled />
-            </form>
-            <div class="vercel-warn hidden" id="vm-vercel-warn">
-              ⚠️ Terminal indisponible sur Vercel — utilise localhost ou Render.
+            <div class="panel-card vm-terminal-card">
+              <div class="console-toolbar">
+                <h3>Terminal VM Cloud</h3>
+                <div>
+                  <span class="term-status" id="cloud-term-status">En attente</span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-cloud-term-clear">Effacer</button>
+                </div>
+              </div>
+              <div class="vm-terminal" id="cloud-terminal">
+                <div class="term-line muted">Démarre ta machine virtuelle pour accéder au terminal...</div>
+              </div>
+              <form id="cloud-term-form" class="term-input-row">
+                <span class="term-prompt">root@vm:~$</span>
+                <input type="text" id="cloud-term-input" placeholder="Commande Linux..." autocomplete="off" disabled />
+              </form>
             </div>
           </div>
         </div>

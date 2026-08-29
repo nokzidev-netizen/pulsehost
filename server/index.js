@@ -10,7 +10,7 @@ const botManager = require('./botManager');
 const fileManager = require('./files');
 const { extractZipToWorkspace } = require('./zipExtract');
 const vm = require('./vm');
-const e2bvm = require('./e2bvm');
+const cloudvm = require('./cloudvm');
 const { setupTerminal } = require('./terminal');
 
 const app = express();
@@ -148,6 +148,9 @@ app.put('/api/projects/:id/settings', clientMiddleware, (req, res) => {
   if (runtime && ['nodejs', 'python'].includes(runtime)) patch.runtime = runtime;
   if (env && typeof env === 'object') patch.env = env;
   if (autoStart !== undefined) patch.autoStart = Boolean(autoStart);
+  if (req.body.cloudApiKey !== undefined) {
+    patch.cloudApiKey = req.body.cloudApiKey.trim();
+  }
 
   const updated = storage.updateBot(bot.id, patch);
   res.json(botManager.sanitizeBot(updated));
@@ -322,9 +325,16 @@ function handleUpload(req, res) {
 // ─── VPS / PulseVM ───
 app.get('/api/vm/info', (_req, res) => {
   res.json({
-    pulsevm: { name: 'PulseVM', free: true, features: ['Terminal', 'Fichiers', '512 Mo disque'] },
-    e2b: { name: 'E2B Cloud VM', free: true, credits: '$100 gratuits', needsKey: !process.env.E2B_API_KEY, signup: 'https://e2b.dev/dashboard?tab=keys' },
-    oracle: { name: 'Oracle Cloud Free', free: true, specs: '24 Go RAM, 4 CPU', url: 'https://cloud.oracle.com/free' },
+    modes: [
+      { id: 'console', name: 'VPS Console', desc: 'Terminal intégré — gratuit, instantané', icon: '💻' },
+      { id: 'cloud', name: 'Machine Virtuelle', desc: 'Vraie VM Linux cloud isolée — gratuit avec clé API', icon: '🖥' },
+    ],
+    keyHelp: {
+      free: true,
+      noCreditCard: true,
+      credits: '100$ de crédits offerts',
+      signupUrl: 'https://e2b.dev/dashboard?tab=keys',
+    },
   });
 });
 
@@ -333,8 +343,9 @@ app.get('/api/projects/:id/vm', clientMiddleware, (req, res) => {
   if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
   res.json({
     ...vm.getVmStats(bot.id),
-    cloud: e2bvm.getCloudStatus(bot.id),
+    cloud: cloudvm.getCloudStatus(bot.id),
     terminalEnabled: !process.env.VERCEL,
+    hasCloudKey: cloudvm.hasApiKey(bot),
   });
 });
 
@@ -355,7 +366,7 @@ app.post('/api/projects/:id/vm/cloud/start', clientMiddleware, async (req, res) 
   if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   try {
-    const cloud = await e2bvm.createSandbox(bot.id);
+    const cloud = await cloudvm.createSandbox(bot.id);
     res.json(cloud);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -366,7 +377,7 @@ app.post('/api/projects/:id/vm/cloud/stop', clientMiddleware, async (req, res) =
   const bot = storage.getBot(req.params.id);
   if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
-  await e2bvm.killSandbox(bot.id);
+  await cloudvm.killSandbox(bot.id);
   res.json({ ok: true });
 });
 
@@ -375,11 +386,22 @@ app.post('/api/projects/:id/vm/cloud/exec', clientMiddleware, async (req, res) =
   if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   try {
-    const result = await e2bvm.execInSandbox(bot.id, req.body.command);
+    const result = await cloudvm.execInSandbox(bot.id, req.body.command);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.put('/api/projects/:id/vm/cloud-key', clientMiddleware, (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  const { cloudApiKey } = req.body;
+  if (!cloudApiKey?.trim()) return res.status(400).json({ error: 'Clé API requise' });
+
+  storage.updateBot(bot.id, { cloudApiKey: cloudApiKey.trim() });
+  res.json({ ok: true, hasCloudKey: true });
 });
 
 app.get('*', (req, res) => {
