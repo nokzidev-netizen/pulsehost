@@ -9,6 +9,9 @@ const storage = require('./storage');
 const botManager = require('./botManager');
 const fileManager = require('./files');
 const { extractZipToWorkspace } = require('./zipExtract');
+const vm = require('./vm');
+const e2bvm = require('./e2bvm');
+const { setupTerminal } = require('./terminal');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -316,6 +319,69 @@ function handleUpload(req, res) {
   }
 }
 
+// ─── VPS / PulseVM ───
+app.get('/api/vm/info', (_req, res) => {
+  res.json({
+    pulsevm: { name: 'PulseVM', free: true, features: ['Terminal', 'Fichiers', '512 Mo disque'] },
+    e2b: { name: 'E2B Cloud VM', free: true, credits: '$100 gratuits', needsKey: !process.env.E2B_API_KEY, signup: 'https://e2b.dev/dashboard?tab=keys' },
+    oracle: { name: 'Oracle Cloud Free', free: true, specs: '24 Go RAM, 4 CPU', url: 'https://cloud.oracle.com/free' },
+  });
+});
+
+app.get('/api/projects/:id/vm', clientMiddleware, (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  res.json({
+    ...vm.getVmStats(bot.id),
+    cloud: e2bvm.getCloudStatus(bot.id),
+    terminalEnabled: !process.env.VERCEL,
+  });
+});
+
+app.post('/api/projects/:id/vm/exec', clientMiddleware, async (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  const { command } = req.body;
+  if (!command?.trim()) return res.status(400).json({ error: 'Commande vide' });
+
+  const env = bot.token ? { DISCORD_TOKEN: bot.token, BOT_TOKEN: bot.token } : {};
+  const result = await vm.execCommand(bot.id, command.trim(), env);
+  res.json(result);
+});
+
+app.post('/api/projects/:id/vm/cloud/start', clientMiddleware, async (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  try {
+    const cloud = await e2bvm.createSandbox(bot.id);
+    res.json(cloud);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/:id/vm/cloud/stop', clientMiddleware, async (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  await e2bvm.killSandbox(bot.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/projects/:id/vm/cloud/exec', clientMiddleware, async (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  try {
+    const result = await e2bvm.execInSandbox(bot.id, req.body.command);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Route introuvable' });
   const page = (req.path === '/panel' || req.path.startsWith('/panel/') || req.path === '/dashboard')
@@ -333,8 +399,12 @@ function startKeepAlive() {
 module.exports = app;
 
 if (!process.env.VERCEL) {
-  app.listen(PORT, async () => {
+  const server = http.createServer(app);
+  setupTerminal(server);
+
+  server.listen(PORT, async () => {
     console.log(`PulseHost → ${PUBLIC_URL}`);
+    console.log(`PulseVM terminal → ws://localhost:${PORT}/api/vm/ws`);
     startKeepAlive();
     await botManager.restoreAllBots();
   });

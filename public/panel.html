@@ -58,6 +58,7 @@
         <button class="tab" data-tab="files">Fichiers</button>
         <button class="tab" data-tab="settings">Paramètres</button>
         <button class="tab" data-tab="console">Console</button>
+        <button class="tab" data-tab="vps">🖥 VPS</button>
       </nav>
 
       <!-- Overview -->
@@ -170,6 +171,70 @@
           </div>
         </div>
       </div>
+
+      <!-- VPS / PulseVM -->
+      <div class="tab-content" id="tab-vps">
+        <div class="vps-layout">
+          <div class="vps-sidebar">
+            <div class="panel-card vm-info-card">
+              <div class="vm-info-head">
+                <span class="vm-status-dot running"></span>
+                <div>
+                  <h3 id="vm-hostname">PulseVM</h3>
+                  <span class="vm-type" id="vm-type">Machine virtuelle intégrée — 100% gratuit</span>
+                </div>
+              </div>
+              <div class="vm-specs" id="vm-specs">
+                <div class="vm-spec"><span>OS</span><strong id="vm-os">—</strong></div>
+                <div class="vm-spec"><span>CPU</span><strong id="vm-cpu">—</strong></div>
+                <div class="vm-spec"><span>RAM</span><strong id="vm-ram">—</strong></div>
+                <div class="vm-spec"><span>Disque</span><strong id="vm-disk">—</strong></div>
+                <div class="vm-spec"><span>Fichiers</span><strong id="vm-files-count">—</strong></div>
+              </div>
+              <div class="disk-bar"><div class="disk-bar-fill" id="vm-disk-bar"></div></div>
+            </div>
+
+            <div class="panel-card">
+              <h4>Actions rapides</h4>
+              <div class="quick-cmds">
+                <button type="button" class="cmd-btn" data-cmd="dir">📂 dir</button>
+                <button type="button" class="cmd-btn" data-cmd="npm install">📦 npm install</button>
+                <button type="button" class="cmd-btn" data-cmd="node -v">🟢 node -v</button>
+                <button type="button" class="cmd-btn" data-cmd="python --version">🐍 python</button>
+              </div>
+            </div>
+
+            <div class="panel-card cloud-vm-card">
+              <h4>☁ Cloud VM (E2B)</h4>
+              <p class="cloud-desc">MicroVM cloud — $100 crédits gratuits sur e2b.dev</p>
+              <div id="cloud-status" class="cloud-status">—</div>
+              <button type="button" class="btn btn-primary btn-sm btn-block" id="btn-cloud-start">Démarrer Cloud VM</button>
+              <button type="button" class="btn btn-ghost btn-sm btn-block hidden" id="btn-cloud-stop">Arrêter Cloud VM</button>
+            </div>
+          </div>
+
+          <div class="panel-card vm-terminal-card">
+            <div class="console-toolbar">
+              <h3>Terminal PulseVM</h3>
+              <div>
+                <span class="term-status" id="term-status">Déconnecté</span>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-term-connect">Connecter</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-term-clear">Effacer</button>
+              </div>
+            </div>
+            <div class="vm-terminal" id="vm-terminal">
+              <div class="term-line muted">Clique "Connecter" pour ouvrir le terminal...</div>
+            </div>
+            <form id="term-form" class="term-input-row">
+              <span class="term-prompt">$</span>
+              <input type="text" id="term-input" placeholder="Tape une commande..." autocomplete="off" disabled />
+            </form>
+            <div class="vercel-warn hidden" id="vm-vercel-warn">
+              ⚠️ Terminal indisponible sur Vercel — utilise localhost ou Render.
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -192,6 +257,7 @@
 
   <div id="toast-container"></div>
   <script src="/js/api.js"></script>
+  <script src="/js/vm.js"></script>
   <script src="/js/panel.js"></script>
 </body>
 </html>

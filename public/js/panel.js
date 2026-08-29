@@ -161,6 +161,8 @@ function showWorkspace() {
 async function selectProject(id, fullLoad = true) {
   if (activeProject?.id === id && !fullLoad) return;
 
+  disconnectVm?.();
+
   activeProject = projects.find((p) => p.id === id);
   if (!activeProject) return;
 
@@ -239,6 +241,7 @@ function loadTabContent(name) {
   else if (name === 'files') loadFiles();
   else if (name === 'settings') populateSettings();
   else if (name === 'overview') refreshOverviewStats();
+  else if (name === 'vps') loadVmTab();
 }
 
 async function refreshOverviewStats() {
