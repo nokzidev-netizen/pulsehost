@@ -120,5 +120,22 @@
       <div class="footer-copy">&copy; 2026 PulseHost</div>
     </div>
   </footer>
+
+  <div class="access-gate hidden" id="access-gate">
+    <div class="access-gate-card">
+      <div class="access-gate-icon">🔒</div>
+      <h2>Accès PulseHost</h2>
+      <p>Entre le code d'accès pour continuer.</p>
+      <form id="access-gate-form">
+        <input type="password" id="access-code-input" placeholder="Code d'accès" autocomplete="off" required />
+        <div class="form-error hidden" id="access-gate-error"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="access-gate-submit">Entrer</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/access.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => ensureSiteAccess());</script>
 </body>
 </html>

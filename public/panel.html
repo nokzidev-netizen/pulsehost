@@ -18,11 +18,16 @@
 
     <button class="btn btn-primary btn-block new-project-btn" id="btn-new-project">+ Nouveau projet</button>
 
+    <div class="session-join-box">
+      <input type="text" id="session-join-input" class="session-join-input" placeholder="Code session (ex: PH7K2M)" maxlength="8" autocomplete="off" />
+      <button type="button" class="btn btn-ghost btn-sm btn-block" id="btn-join-session">Rejoindre une session</button>
+    </div>
+
     <div class="sidebar-section-label">Mes projets</div>
     <div class="project-list" id="project-list"></div>
 
     <div class="sidebar-footer">
-      <div class="client-id-box">
+      <div class="client-id-box hidden" aria-hidden="true">
         <span class="client-id-label">Espace client</span>
         <code id="client-id-display">—</code>
       </div>
@@ -67,6 +72,7 @@
           <div class="metric-card"><div class="metric-label">Runtime</div><div class="metric-value" id="m-runtime">—</div></div>
           <div class="metric-card"><div class="metric-label">Fichier start</div><div class="metric-value mono" id="m-start">—</div></div>
           <div class="metric-card"><div class="metric-label">Fichiers</div><div class="metric-value" id="m-files">—</div></div>
+          <div class="metric-card"><div class="metric-label">Hébergement</div><div class="metric-value" id="m-host">—</div></div>
           <div class="metric-card"><div class="metric-label">Taille</div><div class="metric-value" id="m-size">—</div></div>
         </div>
         <div class="panel-card">
@@ -89,17 +95,20 @@
             </div>
             <div class="file-list" id="file-list"></div>
             <div class="upload-zone" id="upload-zone">
-              <input type="file" id="file-input" multiple accept=".zip,application/zip,.js,.mjs,.cjs,.py,.json,.txt,.env,.yaml,.yml" hidden />
+              <input type="file" id="file-input" multiple accept=".zip,.rar,application/zip,application/x-rar-compressed,.js,.mjs,.cjs,.py,.json,.txt,.env,.yaml,.yml" hidden />
               <div class="upload-zone-inner">
                 <span>📁 Glisse tes fichiers ici</span>
-                <span class="upload-hint">ou clique pour parcourir · ZIP supporté</span>
+                <span class="upload-hint">ou clique pour parcourir · ZIP & RAR supportés</span>
               </div>
             </div>
           </div>
           <div class="panel-card file-editor">
             <div class="editor-toolbar">
               <span id="editor-filename">Sélectionne un fichier</span>
-              <button class="btn btn-primary btn-sm hidden" id="btn-save-file">Sauvegarder</button>
+              <div class="editor-actions">
+                <button class="btn btn-danger-ghost btn-sm hidden" id="btn-delete-file">Supprimer</button>
+                <button class="btn btn-primary btn-sm hidden" id="btn-save-file">Sauvegarder</button>
+              </div>
             </div>
             <textarea id="file-editor" placeholder="Sélectionne un fichier pour l'éditer..." spellcheck="false"></textarea>
           </div>
@@ -127,6 +136,14 @@
                 <label>Fichier de démarrage</label>
                 <select id="set-startfile"></select>
                 <span class="field-hint">Fichier exécuté au lancement (ex: index.js, main.py)</span>
+              </div>
+              <div class="form-group">
+                <label>Hébergement</label>
+                <select id="set-hostmode">
+                  <option value="cloud">VPS Cloud (recommandé — pas ton PC)</option>
+                  <option value="local">Local (ton PC allumé)</option>
+                </select>
+                <span class="field-hint">VPS Cloud = bot sur serveur distant 24/7. Nécessite clé API dans onglet VPS.</span>
               </div>
               <div class="form-group">
                 <label>Token Discord</label>
@@ -239,49 +256,70 @@
 
         <!-- Mode Machine Virtuelle -->
         <div class="vm-mode-panel" id="vm-panel-cloud">
-          <div class="vps-layout">
-            <div class="vps-sidebar">
-              <div class="panel-card">
-                <h4>Clé API Cloud</h4>
-                <p class="cloud-desc">Gratuit · Sans carte bancaire · 100$ de crédits offerts</p>
-                <div class="form-group">
-                  <input type="password" id="cloud-api-key" placeholder="Colle ta clé API ici..." autocomplete="off" />
+          <div class="cloud-layout">
+            <div class="cloud-toolbar panel-card">
+              <div class="cloud-toolbar-left">
+                <span class="vm-status-dot" id="cloud-dot"></span>
+                <div>
+                  <strong id="cloud-hostname">PulseCloud Desktop</strong>
+                  <span class="cloud-status-text" id="cloud-status-text">Hors ligne</span>
                 </div>
-                <button type="button" class="btn btn-primary btn-sm btn-block" id="btn-save-cloud-key">Sauvegarder la clé</button>
-                <a href="https://e2b.dev/dashboard?tab=keys" target="_blank" rel="noopener" class="key-link">→ Obtenir une clé gratuite (sans CB)</a>
               </div>
-              <div class="panel-card vm-info-card">
-                <div class="vm-info-head">
-                  <span class="vm-status-dot" id="cloud-dot"></span>
-                  <div>
-                    <h3 id="cloud-hostname">PulseCloud VM</h3>
-                    <span class="vm-type" id="cloud-status-text">Hors ligne</span>
-                  </div>
-                </div>
-                <div class="vm-specs">
-                  <div class="vm-spec"><span>OS</span><strong>Linux Ubuntu</strong></div>
-                  <div class="vm-spec"><span>CPU</span><strong>2 vCPU</strong></div>
-                  <div class="vm-spec"><span>RAM</span><strong>512 Mo</strong></div>
-                  <div class="vm-spec"><span>Disque</span><strong>10 Go</strong></div>
-                </div>
-                <button type="button" class="btn btn-success btn-sm btn-block" id="btn-cloud-start">▶ Démarrer la VM</button>
-                <button type="button" class="btn btn-ghost btn-sm btn-block hidden" id="btn-cloud-stop">⏹ Arrêter la VM</button>
+              <div class="cloud-toolbar-actions">
+                <input type="password" id="cloud-api-key" class="cloud-key-input" placeholder="Clé API cloud..." autocomplete="off" />
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-save-cloud-key">Sauvegarder clé</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-cloud-key-help">Clé cloud</button>
+                <button type="button" class="btn btn-success btn-sm" id="btn-cloud-start">▶ Démarrer</button>
+                <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-cloud-stop">⏹ Arrêter</button>
+                <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-toggle-term">Terminal</button>
+                <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-desktop-fullscreen">⛶ Plein écran</button>
               </div>
             </div>
-            <div class="panel-card vm-terminal-card">
-              <div class="console-toolbar">
-                <h3>Terminal VM Cloud</h3>
+
+            <div class="session-panel panel-card" id="session-panel">
+              <div class="session-panel-header">
                 <div>
-                  <span class="term-status" id="cloud-term-status">En attente</span>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btn-cloud-term-clear">Effacer</button>
+                  <strong>Session partagée</strong>
+                  <p class="session-desc">Partage le code pour travailler à 2+. Les fichiers sont sauvegardés auto — redémarre après 1h.</p>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-create-session">Créer session</button>
+              </div>
+              <div class="session-info hidden" id="session-info">
+                <div class="session-code-row">
+                  <span class="session-code-label">Code :</span>
+                  <code class="session-code" id="session-code">——</code>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-session">Copier</button>
+                </div>
+                <div class="session-meta">
+                  <span id="session-members">0 membre(s)</span>
+                  <span id="session-last-sync">Dernière sauvegarde : —</span>
                 </div>
               </div>
-              <div class="vm-terminal" id="cloud-terminal">
-                <div class="term-line muted">Démarre ta machine virtuelle pour accéder au terminal...</div>
+              <div class="session-actions">
+                <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-cloud-sync">💾 Sauvegarder fichiers VM</button>
               </div>
+            </div>
+
+            <div class="desktop-viewer-wrap panel-card" id="desktop-wrap">
+              <div class="desktop-placeholder" id="desktop-placeholder">
+                <div class="desktop-placeholder-icon">🖥</div>
+                <h3>Bureau virtuel Ubuntu</h3>
+                <p>Linux complet avec apps — LibreOffice, navigateur, terminal, gestionnaire de fichiers</p>
+                <p class="desktop-hint">Ajoute ta clé API gratuite → Démarrer → contrôle avec souris & clavier</p>
+              </div>
+              <iframe
+                id="desktop-iframe"
+                class="desktop-iframe hidden"
+                title="PulseCloud Desktop"
+                allow="clipboard-read; clipboard-write; fullscreen; autoplay; pointer-lock"
+              ></iframe>
+            </div>
+
+            <div class="cloud-term-drawer hidden" id="cloud-term-drawer">
+              <div class="vm-terminal" id="cloud-terminal"></div>
               <form id="cloud-term-form" class="term-input-row">
-                <span class="term-prompt">root@vm:~$</span>
-                <input type="text" id="cloud-term-input" placeholder="Commande Linux..." autocomplete="off" disabled />
+                <span class="term-prompt">$</span>
+                <input type="text" id="cloud-term-input" placeholder="Commande..." autocomplete="off" disabled />
               </form>
             </div>
           </div>
@@ -308,7 +346,22 @@
   </div>
 
   <div id="toast-container"></div>
+
+  <div class="access-gate hidden" id="access-gate">
+    <div class="access-gate-card">
+      <div class="access-gate-icon">🔒</div>
+      <h2>Accès PulseHost</h2>
+      <p>Entre le code d'accès pour continuer.</p>
+      <form id="access-gate-form">
+        <input type="password" id="access-code-input" placeholder="Code d'accès" autocomplete="off" required />
+        <div class="form-error hidden" id="access-gate-error"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="access-gate-submit">Entrer</button>
+      </form>
+    </div>
+  </div>
+
   <script src="/js/api.js"></script>
+  <script src="/js/access.js"></script>
   <script src="/js/vm.js"></script>
   <script src="/js/panel.js"></script>
 </body>

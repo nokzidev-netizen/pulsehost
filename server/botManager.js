@@ -86,6 +86,15 @@ async function installDependencies(bot) {
 }
 
 async function startBot(bot) {
+  const mode = bot.hostMode || 'cloud';
+
+  if (mode !== 'local') {
+    if (!bot.cloudApiKey && !process.env.PULSE_CLOUD_KEY && !process.env.E2B_API_KEY) {
+      return { ok: false, message: 'Clé API cloud requise — VPS → Machine Virtuelle → Sauvegarder clé' };
+    }
+    return require('./cloudvm').startCloudBot(bot);
+  }
+
   if (activeProcesses.has(bot.id)) {
     return { ok: true, message: 'Déjà en ligne' };
   }
@@ -141,7 +150,7 @@ async function startBot(bot) {
       lastOnline: new Date().toISOString(),
       error: null,
     });
-    addLog(bot.id, 'success', `Processus lancé (PID ${proc.pid})`);
+    addLog(bot.id, 'success', `Processus local lancé (PID ${proc.pid}) — ⚠️ tourne sur TON PC`);
 
     return { ok: true, message: 'Bot démarré' };
   } catch (err) {
@@ -152,24 +161,52 @@ async function startBot(bot) {
 }
 
 async function stopBot(id) {
+  const bot = storage.getBot(id);
+  const cloudvm = require('./cloudvm');
+
+  if (cloudvm.isCloudBotRunning(id) || (bot?.hostMode || 'cloud') !== 'local') {
+    await cloudvm.stopCloudBot(id);
+  }
+
   const proc = activeProcesses.get(id);
   if (!proc) {
-    storage.updateBot(id, { status: 'offline', pid: null });
+    storage.updateBot(id, { status: 'offline', pid: null, error: null });
     return { ok: true, message: 'Bot déjà arrêté' };
   }
 
   addLog(id, 'info', 'Arrêt du bot...');
-  proc.kill('SIGTERM');
+  const pid = proc.pid;
 
-  setTimeout(() => {
-    if (activeProcesses.has(id)) {
-      proc.kill('SIGKILL');
+  await new Promise((resolve) => {
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      proc.removeAllListeners();
       activeProcesses.delete(id);
-    }
-  }, 5000);
+      storage.updateBot(id, { status: 'offline', pid: null, error: null });
+      addLog(id, 'info', 'Bot arrêté');
+      resolve();
+    };
 
-  activeProcesses.delete(id);
-  storage.updateBot(id, { status: 'offline', pid: null });
+    proc.once('close', cleanup);
+
+    if (process.platform === 'win32') {
+      try {
+        execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore', timeout: 10000 });
+      } catch { /* déjà mort */ }
+      setTimeout(cleanup, 800);
+    } else {
+      proc.kill('SIGTERM');
+      setTimeout(() => {
+        try {
+          if (activeProcesses.has(id)) proc.kill('SIGKILL');
+        } catch { /* ignore */ }
+        setTimeout(cleanup, 300);
+      }, 2000);
+    }
+  });
+
   return { ok: true, message: 'Bot arrêté' };
 }
 
@@ -181,9 +218,28 @@ async function restartBot(id) {
   return startBot(bot);
 }
 
+function killOrphanLocalBots() {
+  for (const id of [...activeProcesses.keys()]) {
+    stopBot(id).catch(() => {});
+  }
+  if (process.platform !== 'win32') return;
+  try {
+    const out = execSync(
+      'wmic process where "CommandLine like \'%index.js%\' and Name=\'node.exe\'" get ProcessId /format:value',
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] },
+    );
+    for (const m of out.matchAll(/ProcessId=(\d+)/g)) {
+      const pid = m[1];
+      if (pid !== String(process.pid)) {
+        try { execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' }); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
+}
+
 async function restoreAllBots() {
   for (const bot of storage.loadBots()) {
-    if (bot.autoStart !== false && bot.token) {
+    if (bot.autoStart !== false && bot.token && (bot.hostMode || 'cloud') === 'cloud') {
       await startBot(bot).catch(() => {});
       await new Promise((r) => setTimeout(r, 3000));
     }
@@ -191,16 +247,24 @@ async function restoreAllBots() {
 }
 
 function getLiveStats() {
+  const cloudvm = require('./cloudvm');
   const bots = storage.loadBots();
+  const cloudOnline = bots.filter((b) => cloudvm.isCloudBotRunning(b.id)).length;
+  const localOnline = activeProcesses.size;
   return {
     total: bots.length,
-    online: activeProcesses.size,
-    offline: bots.length - activeProcesses.size,
+    online: localOnline + cloudOnline,
+    offline: bots.length - localOnline - cloudOnline,
   };
 }
 
 function sanitizeBot(bot, opts = {}) {
-  const isOnline = activeProcesses.has(bot.id);
+  const cloudvm = require('./cloudvm');
+  const isCloudOnline = cloudvm.isCloudBotRunning(bot.id);
+  const isLocalOnline = activeProcesses.has(bot.id);
+  const isOnline = isLocalOnline || isCloudOnline;
+  const hostMode = bot.hostMode || 'cloud';
+
   const base = {
     id: bot.id,
     name: bot.name,
@@ -208,11 +272,13 @@ function sanitizeBot(bot, opts = {}) {
     runtime: bot.runtime || 'nodejs',
     startFile: bot.startFile || 'index.js',
     env: bot.env || {},
+    hostMode,
+    hostLabel: isCloudOnline || hostMode === 'cloud' ? 'VPS Cloud' : 'Local (ton PC)',
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt,
     lastOnline: bot.lastOnline || null,
     error: bot.error || null,
-    pid: isOnline ? activeProcesses.get(bot.id)?.pid : null,
+    pid: isLocalOnline ? activeProcesses.get(bot.id)?.pid : null,
     hasToken: Boolean(bot.token),
     autoStart: Boolean(bot.autoStart),
   };
@@ -243,5 +309,6 @@ module.exports = {
   getBotStatus,
   isValidToken,
   addLog,
+  killOrphanLocalBots,
   activeProcesses,
 };

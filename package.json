@@ -11,11 +11,12 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@e2b/code-interpreter": "^1.0.4",
+    "@e2b/desktop": "^1.9.2",
     "adm-zip": "^0.5.16",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.1",
+    "node-unrar-js": "^2.0.2",
     "uuid": "^11.0.5",
     "ws": "^8.18.0"
   }

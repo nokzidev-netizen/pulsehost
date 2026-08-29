@@ -8,9 +8,12 @@ const { v4: uuidv4 } = require('uuid');
 const storage = require('./storage');
 const botManager = require('./botManager');
 const fileManager = require('./files');
-const { extractZipToWorkspace } = require('./zipExtract');
+const { extractArchiveToWorkspace } = require('./archiveExtract');
+const siteAccess = require('./siteAccess');
+const { applySecurityHeaders, rateLimit, strictRateLimit, blockScanners } = require('./security');
 const vm = require('./vm');
 const cloudvm = require('./cloudvm');
+const vmSession = require('./vmSession');
 const { setupTerminal } = require('./terminal');
 
 const app = express();
@@ -24,15 +27,26 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD },
   fileFilter: (_req, file, cb) => {
     const name = file.originalname.toLowerCase();
-    const ok = name.endsWith('.zip') || /\.(js|mjs|cjs|py|json|txt|env|yaml|yml|toml|md)$/.test(name);
+    const ok = name.endsWith('.zip') || name.endsWith('.rar')
+      || /\.(js|mjs|cjs|ts|py|json|txt|env|yaml|yml|toml|md|html|css|sh|bat|ps1)$/i.test(name);
     if (ok) cb(null, true);
     else cb(new Error('Type de fichier non autorisé'));
   },
 });
 
-app.use(cors());
+app.use(applySecurityHeaders);
+app.use(blockScanners);
+app.use(rateLimit({ max: 200 }));
+app.use(cors({ origin: false }));
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  dotfiles: 'deny',
+  index: false,
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'no-store');
+  },
+}));
 
 function getClientId(req) {
   return req.headers['x-client-id'] || req.query.clientId || null;
@@ -47,8 +61,23 @@ function clientMiddleware(req, res, next) {
   next();
 }
 
+function accessMiddleware(req, res, next) {
+  if (!siteAccess.isAccessRequired()) return next();
+  const token = req.headers['x-access-token'];
+  if (siteAccess.validateAccessToken(token)) return next();
+  return res.status(401).json({ error: 'Code d\'accès requis', code: 'ACCESS_REQUIRED' });
+}
+
+function protectedRoute(...handlers) {
+  return [clientMiddleware, accessMiddleware, ...handlers];
+}
+
 function ownsBot(bot, clientId) {
   return bot && bot.clientId === clientId;
+}
+
+function canAccessBot(bot, clientId) {
+  return vmSession.canAccess(bot, clientId);
 }
 
 // ─── Public ───
@@ -61,13 +90,45 @@ app.get('/api/stats', (_req, res) => {
   res.json({ ...stats, uptime: Math.floor(process.uptime()) });
 });
 
-// ─── Projects ───
-app.get('/api/projects', clientMiddleware, (req, res) => {
-  const bots = storage.getBotsByClient(req.clientId).map((b) => botManager.sanitizeBot(b, { lite: true }));
-  res.json(bots);
+app.get('/api/access/status', (req, res) => {
+  const token = req.headers['x-access-token'];
+  res.json({
+    required: siteAccess.isAccessRequired(),
+    granted: siteAccess.validateAccessToken(token),
+  });
 });
 
-app.post('/api/projects', clientMiddleware, (req, res) => {
+app.post('/api/access/verify', strictRateLimit(10), async (req, res) => {
+  if (!siteAccess.isAccessRequired()) {
+    return res.json({ ok: true, token: siteAccess.createAccessToken() });
+  }
+
+  const { code } = req.body || {};
+  if (!siteAccess.verifyAccessCode(code)) {
+    return res.status(403).json({ error: 'Code d\'accès incorrect' });
+  }
+
+  const clientId = getClientId(req) || 'anonymous';
+  notifyAccessAsync(req, clientId);
+
+  res.json({ ok: true, token: siteAccess.createAccessToken() });
+});
+
+function notifyAccessAsync(req, clientId) {
+  siteAccess.notifyAccess(req, clientId).catch(() => {});
+}
+
+// ─── Projects ───
+app.get('/api/projects', ...protectedRoute((req, res) => {
+  const bots = storage.getBotsAccessibleByClient(req.clientId).map((b) => ({
+    ...botManager.sanitizeBot(b, { lite: true }),
+    isShared: b.clientId !== req.clientId,
+    sessionCode: b.vmSessionCode || null,
+  }));
+  res.json(bots);
+}));
+
+app.post('/api/projects', ...protectedRoute((req, res) => {
   const { name } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Nom du projet requis' });
 
@@ -89,6 +150,7 @@ app.post('/api/projects', clientMiddleware, (req, res) => {
     env: {},
     status: 'offline',
     autoStart: false,
+    hostMode: 'cloud',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -96,11 +158,11 @@ app.post('/api/projects', clientMiddleware, (req, res) => {
   storage.addBot(bot);
   storage.createWorkspace(id);
   res.status(201).json(botManager.sanitizeBot(bot));
-});
+}));
 
-app.get('/api/projects/:id/status', clientMiddleware, (req, res) => {
+app.get('/api/projects/:id/status', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const isOnline = botManager.activeProcesses.has(bot.id);
   res.json({
@@ -110,22 +172,24 @@ app.get('/api/projects/:id/status', clientMiddleware, (req, res) => {
     pid: isOnline ? botManager.activeProcesses.get(bot.id)?.pid : null,
     live: botManager.getBotStatus(bot.id),
   });
-});
+}));
 
-app.get('/api/projects/:id', clientMiddleware, (req, res) => {
+app.get('/api/projects/:id', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   res.json({
     ...botManager.sanitizeBot(bot),
     live: botManager.getBotStatus(bot.id),
     startFiles: fileManager.detectStartFiles(bot.id),
+    isShared: bot.clientId !== req.clientId,
+    session: vmSession.getSessionInfo(bot.id),
   });
-});
+}));
 
-app.put('/api/projects/:id/settings', clientMiddleware, (req, res) => {
+app.put('/api/projects/:id/settings', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const { name, token, startFile, runtime, env, autoStart } = req.body;
   const patch = {};
@@ -148,41 +212,47 @@ app.put('/api/projects/:id/settings', clientMiddleware, (req, res) => {
   if (runtime && ['nodejs', 'python'].includes(runtime)) patch.runtime = runtime;
   if (env && typeof env === 'object') patch.env = env;
   if (autoStart !== undefined) patch.autoStart = Boolean(autoStart);
+  if (req.body.hostMode && ['local', 'cloud'].includes(req.body.hostMode)) {
+    patch.hostMode = req.body.hostMode;
+  }
   if (req.body.cloudApiKey !== undefined) {
+    if (!vmSession.isOwner(bot, req.clientId)) {
+      return res.status(403).json({ error: 'Seul le créateur peut modifier la clé API cloud' });
+    }
     patch.cloudApiKey = req.body.cloudApiKey.trim();
   }
 
   const updated = storage.updateBot(bot.id, patch);
   res.json(botManager.sanitizeBot(updated));
-});
+}));
 
-app.post('/api/projects/:id/start', clientMiddleware, async (req, res) => {
+app.post('/api/projects/:id/start', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const result = await botManager.startBot(storage.getBot(bot.id));
   if (!result.ok) return res.status(400).json({ error: result.message });
   res.json(botManager.sanitizeBot(storage.getBot(bot.id)));
-});
+}));
 
-app.post('/api/projects/:id/stop', clientMiddleware, async (req, res) => {
+app.post('/api/projects/:id/stop', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   await botManager.stopBot(bot.id);
   res.json(botManager.sanitizeBot(storage.getBot(bot.id)));
-});
+}));
 
-app.post('/api/projects/:id/restart', clientMiddleware, async (req, res) => {
+app.post('/api/projects/:id/restart', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const result = await botManager.restartBot(bot.id);
   if (!result.ok) return res.status(400).json({ error: result.message });
   res.json(botManager.sanitizeBot(storage.getBot(bot.id)));
-});
+}));
 
-app.delete('/api/projects/:id', clientMiddleware, async (req, res) => {
+app.delete('/api/projects/:id', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
   if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
@@ -190,11 +260,15 @@ app.delete('/api/projects/:id', clientMiddleware, async (req, res) => {
   storage.deleteBot(bot.id);
   storage.deleteWorkspace(bot.id);
   res.json({ ok: true });
-});
+}));
 
-app.get('/api/projects/:id/logs', clientMiddleware, (req, res) => {
+app.get('/api/projects/:id/logs', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  if (cloudvm.isCloudBotRunning(bot.id)) {
+    try { await cloudvm.pullCloudBotLogs(bot.id); } catch { /* ignore */ }
+  }
 
   const logs = botManager.getLogs(bot.id);
   const since = req.query.since;
@@ -203,30 +277,30 @@ app.get('/api/projects/:id/logs', clientMiddleware, (req, res) => {
     return res.json({ logs: filtered, total: logs.length });
   }
   res.json({ logs, total: logs.length });
-});
+}));
 
-app.delete('/api/projects/:id/logs', clientMiddleware, (req, res) => {
+app.delete('/api/projects/:id/logs', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
   botManager.clearLogs(bot.id);
   res.json({ ok: true });
-});
+}));
 
 // ─── Files ───
-app.get('/api/projects/:id/files', clientMiddleware, (req, res) => {
+app.get('/api/projects/:id/files', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const dir = req.query.dir || '';
   res.json({
     files: fileManager.listFiles(bot.id, dir),
     startFiles: fileManager.detectStartFiles(bot.id),
   });
-});
+}));
 
-app.get('/api/projects/:id/files/content', clientMiddleware, (req, res) => {
+app.get('/api/projects/:id/files/content', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   try {
     const content = fileManager.readFile(bot.id, req.query.path);
@@ -234,11 +308,11 @@ app.get('/api/projects/:id/files/content', clientMiddleware, (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-app.put('/api/projects/:id/files/content', clientMiddleware, (req, res) => {
+app.put('/api/projects/:id/files/content', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const { path: filePath, content } = req.body;
   if (!filePath) return res.status(400).json({ error: 'Chemin requis' });
@@ -249,11 +323,11 @@ app.put('/api/projects/:id/files/content', clientMiddleware, (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-app.delete('/api/projects/:id/files', clientMiddleware, (req, res) => {
+app.delete('/api/projects/:id/files', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   try {
     fileManager.deleteFile(bot.id, req.query.path);
@@ -261,40 +335,28 @@ app.delete('/api/projects/:id/files', clientMiddleware, (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-app.post('/api/projects/:id/upload', clientMiddleware, (req, res) => {
+app.post('/api/projects/:id/upload', ...protectedRoute((req, res) => {
   upload.single('file')(req, res, (err) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'Upload échoué' });
     }
     handleUpload(req, res);
   });
-});
+}));
 
 function handleUpload(req, res) {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
   if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
 
   const ws = storage.getWorkspacePath(bot.id);
   const originalName = path.basename(req.file.originalname);
-  const isZip = originalName.toLowerCase().endsWith('.zip');
+  const lower = originalName.toLowerCase();
+  const isArchive = lower.endsWith('.zip') || lower.endsWith('.rar');
 
-  try {
-    let uploadMessage;
-
-    if (isZip) {
-      const result = extractZipToWorkspace(req.file.buffer, ws);
-      uploadMessage = result.message;
-      botManager.addLog(bot.id, 'success', `ZIP extrait: ${originalName} — ${result.message}`);
-    } else {
-      const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
-      fs.writeFileSync(path.join(ws, safeName), req.file.buffer);
-      uploadMessage = `Fichier uploadé: ${safeName}`;
-      botManager.addLog(bot.id, 'info', uploadMessage);
-    }
-
+  const finish = (uploadMessage) => {
     const startFiles = fileManager.detectStartFiles(bot.id);
     const currentBot = storage.getBot(bot.id);
     const currentStartPath = path.join(ws, currentBot.startFile || '');
@@ -317,8 +379,28 @@ function handleUpload(req, res) {
       startFiles: fileManager.detectStartFiles(bot.id),
       startFile: storage.getBot(bot.id).startFile,
     });
+  };
+
+  if (isArchive) {
+    extractArchiveToWorkspace(req.file.buffer, originalName, ws)
+      .then((result) => {
+        botManager.addLog(bot.id, 'success', `${lower.endsWith('.rar') ? 'RAR' : 'ZIP'} extrait: ${originalName} — ${result.message}`);
+        finish(result.message);
+      })
+      .catch((err) => {
+        res.status(400).json({ error: err.message || 'Extraction échouée' });
+      });
+    return;
+  }
+
+  try {
+    const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    fs.writeFileSync(path.join(ws, safeName), req.file.buffer);
+    const uploadMessage = `Fichier uploadé: ${safeName}`;
+    botManager.addLog(bot.id, 'info', uploadMessage);
+    finish(uploadMessage);
   } catch (err) {
-    res.status(400).json({ error: err.message || 'Extraction ZIP échouée' });
+    res.status(400).json({ error: err.message || 'Upload échoué' });
   }
 }
 
@@ -332,26 +414,65 @@ app.get('/api/vm/info', (_req, res) => {
     keyHelp: {
       free: true,
       noCreditCard: true,
-      credits: '100$ de crédits offerts',
-      signupUrl: 'https://e2b.dev/dashboard?tab=keys',
+      credits: 'Crédits cloud offerts',
     },
   });
 });
 
-app.get('/api/projects/:id/vm', clientMiddleware, (req, res) => {
+app.get('/api/projects/:id/vm', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
   res.json({
     ...vm.getVmStats(bot.id),
     cloud: cloudvm.getCloudStatus(bot.id),
     terminalEnabled: !process.env.VERCEL,
     hasCloudKey: cloudvm.hasApiKey(bot),
+    session: {
+      ...vmSession.getSessionInfo(bot.id),
+      isOwner: vmSession.isOwner(bot, req.clientId),
+    },
   });
-});
+}));
 
-app.post('/api/projects/:id/vm/exec', clientMiddleware, async (req, res) => {
+app.post('/api/vm/session/join', ...protectedRoute((req, res) => {
+  try {
+    const { code } = req.body || {};
+    const joined = vmSession.joinSession(code, req.clientId);
+    res.json(joined);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/vm/session/create', ...protectedRoute((req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!vmSession.isOwner(bot, req.clientId)) {
+    return res.status(403).json({ error: 'Seul le créateur peut créer une session' });
+  }
+
+  try {
+    const session = vmSession.createSession(bot.id, req.clientId);
+    res.json({ ok: true, session });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/vm/cloud/sync', ...protectedRoute(async (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+
+  try {
+    const result = await cloudvm.syncPullFromSandbox(bot.id);
+    res.json({ ok: true, ...result, message: `${result.saved} fichier(s) sauvegardés` });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/vm/exec', ...protectedRoute(async (req, res) => {
+  const bot = storage.getBot(req.params.id);
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   const { command } = req.body;
   if (!command?.trim()) return res.status(400).json({ error: 'Commande vide' });
@@ -359,11 +480,11 @@ app.post('/api/projects/:id/vm/exec', clientMiddleware, async (req, res) => {
   const env = bot.token ? { DISCORD_TOKEN: bot.token, BOT_TOKEN: bot.token } : {};
   const result = await vm.execCommand(bot.id, command.trim(), env);
   res.json(result);
-});
+}));
 
-app.post('/api/projects/:id/vm/cloud/start', clientMiddleware, async (req, res) => {
+app.post('/api/projects/:id/vm/cloud/start', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   try {
     const cloud = await cloudvm.createSandbox(bot.id);
@@ -371,19 +492,19 @@ app.post('/api/projects/:id/vm/cloud/start', clientMiddleware, async (req, res) 
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-app.post('/api/projects/:id/vm/cloud/stop', clientMiddleware, async (req, res) => {
+app.post('/api/projects/:id/vm/cloud/stop', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   await cloudvm.killSandbox(bot.id);
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/projects/:id/vm/cloud/exec', clientMiddleware, async (req, res) => {
+app.post('/api/projects/:id/vm/cloud/exec', ...protectedRoute(async (req, res) => {
   const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+  if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
 
   try {
     const result = await cloudvm.execInSandbox(bot.id, req.body.command);
@@ -391,18 +512,28 @@ app.post('/api/projects/:id/vm/cloud/exec', clientMiddleware, async (req, res) =
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-app.put('/api/projects/:id/vm/cloud-key', clientMiddleware, (req, res) => {
-  const bot = storage.getBot(req.params.id);
-  if (!ownsBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+app.put('/api/projects/:id/vm/cloud-key', ...protectedRoute(saveCloudKeyHandler));
+app.post('/api/projects/:id/vm/cloud-key', ...protectedRoute(saveCloudKeyHandler));
 
-  const { cloudApiKey } = req.body;
-  if (!cloudApiKey?.trim()) return res.status(400).json({ error: 'Clé API requise' });
+function saveCloudKeyHandler(req, res) {
+  try {
+    const bot = storage.getBot(req.params.id);
+    if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+    if (!vmSession.isOwner(bot, req.clientId)) {
+      return res.status(403).json({ error: 'Seul le créateur peut modifier la clé API cloud' });
+    }
 
-  storage.updateBot(bot.id, { cloudApiKey: cloudApiKey.trim() });
-  res.json({ ok: true, hasCloudKey: true });
-});
+    const { cloudApiKey } = req.body || {};
+    if (!cloudApiKey?.trim()) return res.status(400).json({ error: 'Clé API requise' });
+
+    storage.updateBot(bot.id, { cloudApiKey: cloudApiKey.trim() });
+    res.json({ ok: true, hasCloudKey: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Impossible de sauvegarder la clé' });
+  }
+}
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Route introuvable' });
@@ -427,6 +558,7 @@ if (!process.env.VERCEL) {
   server.listen(PORT, async () => {
     console.log(`PulseHost → ${PUBLIC_URL}`);
     console.log(`PulseVM terminal → ws://localhost:${PORT}/api/vm/ws`);
+    botManager.killOrphanLocalBots();
     startKeepAlive();
     await botManager.restoreAllBots();
   });

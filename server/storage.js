@@ -1,12 +1,33 @@
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { encrypt, decrypt } = require('./crypto');
 
 const DATA_DIR = process.env.VERCEL
   ? path.join('/tmp', 'pulsehost')
   : path.join(__dirname, '..', 'data');
 const BOTS_FILE = path.join(DATA_DIR, 'bots.json');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
+
+const SECURE_FIELDS = ['token', 'cloudApiKey'];
+
+function sealBot(bot) {
+  if (!bot) return bot;
+  const sealed = { ...bot };
+  for (const field of SECURE_FIELDS) {
+    if (sealed[field]) sealed[field] = encrypt(sealed[field]);
+  }
+  return sealed;
+}
+
+function unsealBot(bot) {
+  if (!bot) return bot;
+  const open = { ...bot };
+  for (const field of SECURE_FIELDS) {
+    if (open[field]) open[field] = decrypt(open[field]);
+  }
+  return open;
+}
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -32,11 +53,11 @@ function writeJson(file, data) {
 }
 
 function loadBots() {
-  return readJson(BOTS_FILE, []);
+  return readJson(BOTS_FILE, []).map(unsealBot);
 }
 
 function saveBots(bots) {
-  writeJson(BOTS_FILE, bots);
+  writeJson(BOTS_FILE, bots.map(sealBot));
 }
 
 function getBot(id) {
@@ -45,6 +66,16 @@ function getBot(id) {
 
 function getBotsByClient(clientId) {
   return loadBots().filter((b) => b.clientId === clientId);
+}
+
+function getBotsAccessibleByClient(clientId) {
+  return loadBots().filter(
+    (b) => b.clientId === clientId || (b.vmSessionMembers || []).includes(clientId),
+  );
+}
+
+function getBotBySessionCode(code) {
+  return loadBots().find((b) => b.vmSessionCode === code) || null;
 }
 
 function addBot(bot) {
@@ -86,6 +117,8 @@ module.exports = {
   loadBots,
   getBot,
   getBotsByClient,
+  getBotsAccessibleByClient,
+  getBotBySessionCode,
   addBot,
   updateBot,
   deleteBot,

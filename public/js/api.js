@@ -1,4 +1,5 @@
 const CLIENT_KEY = 'pulsehost_client_id';
+const ACCESS_TOKEN_KEY = 'pulsehost_access_token';
 
 function getClientId() {
   let id = localStorage.getItem(CLIENT_KEY);
@@ -15,13 +16,31 @@ async function api(path, options = {}) {
     ...options.headers,
   };
 
+  const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (accessToken) headers['X-Access-Token'] = accessToken;
+
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
 
   const res = await fetch(path, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+  const raw = await res.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      const plain = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!res.ok) {
+        throw new Error(plain.slice(0, 120) || `Erreur serveur (${res.status})`);
+      }
+    }
+  }
+  if (res.status === 401 && data.code === 'ACCESS_REQUIRED') {
+    if (typeof ensureSiteAccess === 'function') await ensureSiteAccess();
+    return api(path, options);
+  }
+  if (!res.ok) throw new Error(data.error || `Erreur serveur (${res.status})`);
   return data;
 }
 

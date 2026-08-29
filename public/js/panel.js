@@ -17,8 +17,10 @@ const $$ = (sel) => document.querySelectorAll(sel);
 function init() {
   $('#client-id-display').textContent = getClientId().slice(0, 8) + '...';
   bindEvents();
-  loadProjects(false);
-  startSmartPolling();
+  ensureSiteAccess().then(() => {
+    loadProjects(false);
+    startSmartPolling();
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopPolling();
@@ -46,17 +48,17 @@ function bindEvents() {
     i.type = i.type === 'password' ? 'text' : 'password';
   });
 
-  $('#upload-zone').addEventListener('click', () => $('#file-input').click());
-  $('#file-input').addEventListener('change', (e) => uploadFiles(e.target.files));
-  $('#upload-zone').addEventListener('dragover', (e) => { e.preventDefault(); e.currentTarget.classList.add('dragover'); });
-  $('#upload-zone').addEventListener('dragleave', (e) => e.currentTarget.classList.remove('dragover'));
-  $('#upload-zone').addEventListener('drop', (e) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('dragover');
-    uploadFiles(e.dataTransfer.files);
+  $('#upload-zone').addEventListener('click', (e) => {
+    if (e.target.closest('input')) return;
+    $('#file-input').click();
   });
+  $('#file-input').addEventListener('change', (e) => {
+    if (e.target.files?.length) uploadFiles(e.target.files);
+  });
+  setupFileDrop();
 
   $('#btn-save-file').addEventListener('click', saveCurrentFile);
+  $('#btn-delete-file')?.addEventListener('click', deleteCurrentFile);
   $('#file-editor').addEventListener('input', () => { editorDirty = true; });
   $('#files-up').addEventListener('click', () => {
     if (!currentDir) return;
@@ -66,6 +68,72 @@ function bindEvents() {
 
   $('#btn-clear-logs').addEventListener('click', clearLogs);
   $('#btn-refresh-logs').addEventListener('click', () => loadLogs(true));
+  $('#btn-join-session')?.addEventListener('click', joinSession);
+  $('#session-join-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') joinSession();
+  });
+}
+
+async function joinSession() {
+  const input = $('#session-join-input');
+  const code = input?.value.trim();
+  if (!code) return showToast('Entre un code session', 'error');
+
+  try {
+    const r = await api('/api/vm/session/join', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    showToast(`Session rejointe — ${r.name}`);
+    if (input) input.value = '';
+    await loadProjects(true);
+    selectProject(r.projectId);
+    switchTab('vps');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function setupFileDrop() {
+  const zone = $('#upload-zone');
+  const tab = $('#tab-files');
+  if (!zone) return;
+
+  let dragDepth = 0;
+
+  const prevent = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  for (const evt of ['dragenter', 'dragover', 'dragleave', 'drop']) {
+    zone.addEventListener(evt, prevent);
+    tab?.addEventListener(evt, prevent);
+  }
+
+  zone.addEventListener('dragenter', () => {
+    dragDepth += 1;
+    zone.classList.add('dragover');
+  });
+
+  zone.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) zone.classList.remove('dragover');
+  });
+
+  zone.addEventListener('drop', (e) => {
+    dragDepth = 0;
+    zone.classList.remove('dragover');
+    const files = e.dataTransfer?.files;
+    if (!files?.length) return showToast('Aucun fichier détecté', 'error');
+    uploadFiles(files);
+  });
+
+  tab?.addEventListener('drop', (e) => {
+    const files = e.dataTransfer?.files;
+    if (!files?.length) return;
+    uploadFiles(files);
+  });
 }
 
 // ─── Polling optimisé ───
@@ -137,7 +205,7 @@ function renderProjectList() {
   list.innerHTML = projects.map((p) => `
     <button class="project-item ${currentId === p.id ? 'active' : ''}" data-id="${p.id}">
       <span class="project-dot ${p.status}"></span>
-      <span class="project-item-name">${escapeHtml(p.name)}</span>
+      <span class="project-item-name">${escapeHtml(p.name)}${p.isShared ? ' <span class="shared-tag">session</span>' : ''}</span>
     </button>
   `).join('');
 
@@ -155,7 +223,13 @@ function showEmpty() {
 function showWorkspace() {
   $('#empty-panel').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
+  updateWorkspaceActions();
   startSmartPolling();
+}
+
+function updateWorkspaceActions() {
+  const isShared = activeProject?.isShared;
+  $('#btn-delete')?.classList.toggle('hidden', Boolean(isShared));
 }
 
 async function selectProject(id, fullLoad = true) {
@@ -175,6 +249,7 @@ async function selectProject(id, fullLoad = true) {
     if (fullLoad) {
       const detail = await api(`/api/projects/${id}`);
       activeProject = { ...activeProject, ...detail };
+      updateWorkspaceActions();
       populateSettings();
     }
     updateHeader();
@@ -224,6 +299,7 @@ function updateOverview() {
   $('#m-runtime').textContent = activeProject.runtime === 'python' ? 'Python' : 'Node.js';
   $('#m-start').textContent = activeProject.startFile || '—';
   $('#m-files').textContent = activeProject.fileCount ?? '—';
+  $('#m-host').textContent = activeProject.hostLabel || (activeProject.hostMode === 'local' ? 'Local (ton PC)' : 'VPS Cloud');
   $('#m-size').textContent = activeProject.workspaceSize != null ? formatBytes(activeProject.workspaceSize) : '—';
 }
 
@@ -250,6 +326,8 @@ async function refreshOverviewStats() {
     const detail = await api(`/api/projects/${activeProject.id}`);
     activeProject.fileCount = detail.fileCount;
     activeProject.workspaceSize = detail.workspaceSize;
+    activeProject.hostMode = detail.hostMode;
+    activeProject.hostLabel = detail.hostLabel;
     updateOverview();
   } catch { /* ignore */ }
 }
@@ -278,15 +356,25 @@ async function createProject(e) {
 
 async function projectAction(action) {
   if (!activeProject) return;
+
+  const btn = $(`#btn-${action}`);
+  if (btn) btn.disabled = true;
+
   try {
     const result = await api(`/api/projects/${activeProject.id}/${action}`, { method: 'POST' });
     Object.assign(activeProject, result);
     updateHeader();
     renderProjectList();
-    if (action !== 'stop') loadLogs(true);
+    if (action === 'stop') {
+      await refreshStatus();
+    } else if (action !== 'stop') {
+      loadLogs(true);
+    }
     showToast(action === 'start' ? 'Bot démarré' : action === 'stop' ? 'Bot arrêté' : 'Bot redémarré');
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -313,6 +401,7 @@ function populateSettings() {
   if (!activeProject) return;
   $('#set-name').value = activeProject.name || '';
   $('#set-runtime').value = activeProject.runtime || 'nodejs';
+  $('#set-hostmode').value = activeProject.hostMode || 'cloud';
   $('#set-autostart').checked = activeProject.autoStart || false;
 
   const startSelect = $('#set-startfile');
@@ -363,6 +452,7 @@ async function saveSettings(e) {
     startFile: $('#set-startfile').value,
     env,
     autoStart: $('#set-autostart').checked,
+    hostMode: $('#set-hostmode').value,
   };
 
   const token = $('#set-token').value.trim();
@@ -442,6 +532,7 @@ async function openFile(filePath) {
     $('#editor-filename').textContent = filePath;
     $('#file-editor').value = data.content;
     $('#btn-save-file').classList.remove('hidden');
+    $('#btn-delete-file')?.classList.remove('hidden');
     editorDirty = false;
   } catch (err) {
     showToast(err.message, 'error');
@@ -462,21 +553,44 @@ async function saveCurrentFile() {
   }
 }
 
+async function deleteCurrentFile() {
+  if (!currentFilePath || !activeProject) return;
+  if (!confirm(`Supprimer "${currentFilePath}" ?`)) return;
+
+  try {
+    await api(`/api/projects/${activeProject.id}/files?path=${encodeURIComponent(currentFilePath)}`, {
+      method: 'DELETE',
+    });
+    currentFilePath = '';
+    editorDirty = false;
+    $('#editor-filename').textContent = 'Sélectionne un fichier';
+    $('#file-editor').value = '';
+    $('#btn-save-file').classList.add('hidden');
+    $('#btn-delete-file')?.classList.add('hidden');
+    showToast('Fichier supprimé');
+    loadFiles();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 async function uploadFiles(fileList) {
-  if (!activeProject || !fileList.length) return;
+  if (!activeProject) return showToast('Sélectionne un projet d\'abord', 'error');
+  if (!fileList?.length) return showToast('Aucun fichier', 'error');
 
   const zone = $('#upload-zone');
-  zone.classList.add('uploading');
-  zone.querySelector('.upload-zone-inner span').textContent = 'Upload en cours...';
+  const inner = zone?.querySelector('.upload-zone-inner');
+  zone?.classList.add('uploading');
+  if (inner) inner.innerHTML = '<span>Upload en cours...</span>';
 
   try {
     for (const file of fileList) {
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', file, file.name);
       const result = await api(`/api/projects/${activeProject.id}/upload`, { method: 'POST', body: fd });
-
-      if (file.name.toLowerCase().endsWith('.zip')) {
-        showToast(result.message || `ZIP extrait`, 'success');
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.zip') || lower.endsWith('.rar')) {
+        showToast(result.message || 'Archive extraite', 'success');
         if (result.startFile) activeProject.startFile = result.startFile;
       } else {
         showToast(`${file.name} uploadé`);
@@ -487,10 +601,12 @@ async function uploadFiles(fileList) {
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
-    zone.classList.remove('uploading');
-    zone.querySelector('.upload-zone-inner').innerHTML =
-      '<span>📁 Glisse tes fichiers ici</span><span class="upload-hint">ZIP, .js, .py — extraction auto</span>';
-    $('#file-input').value = '';
+    zone?.classList.remove('uploading');
+    if (inner) {
+      inner.innerHTML = '<span>📁 Glisse tes fichiers ici</span><span class="upload-hint">ou clique pour parcourir · ZIP & RAR supportés</span>';
+    }
+    const input = $('#file-input');
+    if (input) input.value = '';
   }
 }
 
