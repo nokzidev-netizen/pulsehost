@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
 const { encrypt, decrypt } = require('./crypto');
 
 const DATA_DIR = process.env.VERCEL
@@ -8,8 +7,13 @@ const DATA_DIR = process.env.VERCEL
   : path.join(__dirname, '..', 'data');
 const BOTS_FILE = path.join(DATA_DIR, 'bots.json');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
+const BLOB_PATH = 'pulsehost/bots.json';
 
 const SECURE_FIELDS = ['token', 'cloudApiKey'];
+
+let memBots = null;
+let hydrated = false;
+let hydratePromise = null;
 
 function sealBot(bot) {
   if (!bot) return bot;
@@ -36,10 +40,7 @@ function ensureDataDir() {
 
 function readJson(file, fallback) {
   ensureDataDir();
-  if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, JSON.stringify(fallback, null, 2), 'utf8');
-    return fallback;
-  }
+  if (!fs.existsSync(file)) return fallback;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
@@ -52,12 +53,74 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
 }
 
+async function loadFromBlob() {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
+  try {
+    const { head } = require('@vercel/blob');
+    const meta = await head(BLOB_PATH);
+    if (!meta?.url) return null;
+    const res = await fetch(meta.url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function saveToBlob(data) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    const { put } = require('@vercel/blob');
+    await put(BLOB_PATH, JSON.stringify(data), {
+      access: 'public',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    });
+  } catch { /* ignore */ }
+}
+
+async function hydrate() {
+  if (hydrated) return;
+  if (hydratePromise) return hydratePromise;
+
+  hydratePromise = (async () => {
+    const local = readJson(BOTS_FILE, []);
+    if (local.length > 0) {
+      memBots = local;
+      hydrated = true;
+      return;
+    }
+
+    const blobData = await loadFromBlob();
+    if (Array.isArray(blobData) && blobData.length > 0) {
+      memBots = blobData;
+      writeJson(BOTS_FILE, memBots);
+      hydrated = true;
+      return;
+    }
+
+    memBots = [];
+    hydrated = true;
+  })();
+
+  return hydratePromise;
+}
+
+function persistBots(sealedBots) {
+  memBots = sealedBots;
+  writeJson(BOTS_FILE, sealedBots);
+  saveToBlob(sealedBots).catch(() => {});
+}
+
 function loadBots() {
-  return readJson(BOTS_FILE, []).map(unsealBot);
+  if (memBots === null) {
+    memBots = readJson(BOTS_FILE, []);
+  }
+  return memBots.map(unsealBot);
 }
 
 function saveBots(bots) {
-  writeJson(BOTS_FILE, bots.map(sealBot));
+  persistBots(bots.map(sealBot));
 }
 
 function getBot(id) {
@@ -113,7 +176,18 @@ function deleteWorkspace(botId) {
   if (fs.existsSync(ws)) fs.rmSync(ws, { recursive: true, force: true });
 }
 
+async function hydrateMiddleware(req, res, next) {
+  try {
+    await hydrate();
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  hydrate,
+  hydrateMiddleware,
   loadBots,
   getBot,
   getBotsByClient,

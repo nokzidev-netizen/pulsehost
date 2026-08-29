@@ -44,6 +44,9 @@ async function loadVmTab() {
   if (!activeProject) return;
   try {
     vmData = await api(`/api/projects/${activeProject.id}/vm`);
+    if (!vmData.hasCloudKey && getCloudKey(activeProject.id)) {
+      vmData.hasCloudKey = true;
+    }
     renderConsoleStats(vmData);
     renderCloudPanel();
     renderSessionPanel();
@@ -210,20 +213,28 @@ async function saveCloudKey() {
   if (btn) { btn.disabled = true; btn.textContent = 'Sauvegarde...'; }
 
   try {
-    await api(`/api/projects/${activeProject.id}/settings`, {
-      method: 'PUT',
+    await api(`/api/projects/${activeProject.id}/vm/cloud-key`, {
+      method: 'POST',
       body: JSON.stringify({ cloudApiKey: key }),
     });
+    setCloudKey(activeProject.id, key);
     showToast('Clé API sauvegardée ✓');
-    document.getElementById('cloud-api-key').value = '';
-    if (!vmData) vmData = {};
-    vmData.hasCloudKey = true;
-    await loadVmTab();
   } catch (err) {
-    showToast(err.message, 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder clé'; }
+    if (err.message.includes('introuvable')) {
+      setCloudKey(activeProject.id, key);
+      showToast('Clé sauvegardée localement ✓', 'info');
+    } else {
+      showToast(err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder clé'; }
+      return;
+    }
   }
+
+  document.getElementById('cloud-api-key').value = '';
+  if (!vmData) vmData = {};
+  vmData.hasCloudKey = true;
+  await loadVmTab();
+  if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder clé'; }
 }
 
 function connectConsoleTerminal() {

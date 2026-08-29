@@ -14,12 +14,26 @@ const MAX_FILE_SIZE = 5_000_000;
 const MAX_FILES = 100;
 const VM_REMOTE_ROOT = '/home/user';
 
-function getApiKey(bot) {
-  return bot?.cloudApiKey || process.env.PULSE_CLOUD_KEY || process.env.E2B_API_KEY || null;
+const requestCloudKeys = new Map();
+
+function setRequestCloudKey(botId, key) {
+  if (botId && key) requestCloudKeys.set(botId, key);
 }
 
-function hasApiKey(bot) {
-  return Boolean(getApiKey(bot));
+function clearRequestCloudKey(botId) {
+  requestCloudKeys.delete(botId);
+}
+
+function getApiKey(bot, req) {
+  const reqKey = bot?.id ? requestCloudKeys.get(bot.id) : null;
+  const headerKey = typeof req?.headers?.['x-cloud-key'] === 'string'
+    ? req.headers['x-cloud-key'].trim()
+    : null;
+  return reqKey || headerKey || bot?.cloudApiKey || process.env.PULSE_CLOUD_KEY || process.env.E2B_API_KEY || null;
+}
+
+function hasApiKey(bot, req) {
+  return Boolean(getApiKey(bot, req));
 }
 
 async function syncPushToSandbox(botId, sandbox) {
@@ -386,6 +400,8 @@ module.exports = {
   getCloudStatus,
   hasApiKey,
   getApiKey,
+  setRequestCloudKey,
+  clearRequestCloudKey,
   syncPullFromSandbox,
   syncPushToSandbox,
   startCloudBot,

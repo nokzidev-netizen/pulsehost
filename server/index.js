@@ -38,6 +38,23 @@ app.use(rateLimit({ max: 200 }));
 app.use(cors({ origin: false }));
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
+app.use(async (req, res, next) => {
+  try {
+    await storage.hydrate();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+app.use((req, res, next) => {
+  const match = req.path.match(/^\/api\/projects\/([^/]+)/);
+  const cloudKey = req.headers['x-cloud-key']?.trim();
+  if (match && cloudKey) {
+    cloudvm.setRequestCloudKey(match[1], cloudKey);
+    res.on('finish', () => cloudvm.clearRequestCloudKey(match[1]));
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   dotfiles: 'deny',
   index: false,
@@ -388,7 +405,7 @@ app.get('/api/projects/:id/vm', ...protectedRoute((req, res) => {
     ...vm.getVmStats(bot.id),
     cloud: cloudvm.getCloudStatus(bot.id),
     terminalEnabled: !process.env.VERCEL,
-    hasCloudKey: cloudvm.hasApiKey(bot),
+    hasCloudKey: cloudvm.hasApiKey(bot, req),
     session: {
       ...vmSession.getSessionInfo(bot.id),
       isOwner: vmSession.isOwner(bot, req.clientId),
@@ -482,7 +499,14 @@ app.post('/api/projects/:id/vm/cloud-key', ...protectedRoute(saveCloudKeyHandler
 function saveCloudKeyHandler(req, res) {
   try {
     const bot = storage.getBot(req.params.id);
-    if (!canAccessBot(bot, req.clientId)) return res.status(404).json({ error: 'Projet introuvable' });
+    if (!bot) {
+      return res.status(404).json({
+        error: 'Projet introuvable — recrée ton projet puis réessaie',
+      });
+    }
+    if (!canAccessBot(bot, req.clientId)) {
+      return res.status(404).json({ error: 'Projet introuvable' });
+    }
     if (!vmSession.isOwner(bot, req.clientId)) {
       return res.status(403).json({ error: 'Seul le créateur peut modifier la clé API cloud' });
     }

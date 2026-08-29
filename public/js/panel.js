@@ -176,6 +176,12 @@ async function loadProjects(autoSelect = true) {
   isFetching = true;
   try {
     projects = await api('/api/projects');
+    if (projects.length === 0) {
+      const cached = loadCachedProjects();
+      if (cached.length) projects = cached;
+    } else {
+      cacheProjects(projects);
+    }
     renderProjectList();
 
     if (projects.length === 0) {
@@ -343,6 +349,7 @@ async function createProject(e) {
     });
     closeNewModal();
     projects.push(bot);
+    cacheProjects(projects);
     renderProjectList();
     await selectProject(bot.id);
     showToast('Projet créé');

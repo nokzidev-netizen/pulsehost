@@ -1,20 +1,61 @@
 const CLIENT_KEY = 'pulsehost_client_id';
+const PROJECTS_KEY = 'pulsehost_projects_cache';
+
+function readCookie(name) {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function writeCookie(name, value, days = 365) {
+  const maxAge = days * 24 * 60 * 60;
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+}
 
 function getClientId() {
+  let id = null;
+  try { id = localStorage.getItem(CLIENT_KEY); } catch { /* ignore */ }
+  if (!id) id = readCookie(CLIENT_KEY);
+  if (!id) {
+    try { id = sessionStorage.getItem(CLIENT_KEY); } catch { /* ignore */ }
+  }
+  if (!id) {
+    id = crypto.randomUUID();
+  }
+  try { localStorage.setItem(CLIENT_KEY, id); } catch { /* ignore */ }
+  try { sessionStorage.setItem(CLIENT_KEY, id); } catch { /* ignore */ }
+  writeCookie(CLIENT_KEY, id);
+  return id;
+}
+
+function getCloudKey(projectId) {
+  if (!projectId) return null;
+  const k = `pulsehost_cloud_key_${projectId}`;
   try {
-    let id = localStorage.getItem(CLIENT_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem(CLIENT_KEY, id);
-    }
-    return id;
+    return localStorage.getItem(k) || sessionStorage.getItem(k);
   } catch {
-    let id = sessionStorage.getItem(CLIENT_KEY);
-    if (!id) {
-      id = crypto.randomUUID();
-      sessionStorage.setItem(CLIENT_KEY, id);
-    }
-    return id;
+    return null;
+  }
+}
+
+function setCloudKey(projectId, key) {
+  if (!projectId || !key) return;
+  const k = `pulsehost_cloud_key_${projectId}`;
+  try { localStorage.setItem(k, key); } catch { /* ignore */ }
+  try { sessionStorage.setItem(k, key); } catch { /* ignore */ }
+}
+
+function cacheProjects(projects) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+  } catch { /* ignore */ }
+}
+
+function loadCachedProjects() {
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
   }
 }
 
@@ -23,6 +64,12 @@ async function api(path, options = {}) {
     'X-Client-Id': getClientId(),
     ...options.headers,
   };
+
+  const projectMatch = path.match(/\/api\/projects\/([^/]+)/);
+  if (projectMatch) {
+    const cloudKey = getCloudKey(projectMatch[1]);
+    if (cloudKey) headers['X-Cloud-Key'] = cloudKey;
+  }
 
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
