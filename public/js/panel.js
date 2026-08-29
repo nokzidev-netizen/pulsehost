@@ -14,13 +14,12 @@ let lastLogCount = 0;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-function init() {
+async function init() {
+  await (window.pulseAccessReady || ensureSiteAccess());
   $('#client-id-display').textContent = getClientId().slice(0, 8) + '...';
   bindEvents();
-  (window.pulseAccessReady || ensureSiteAccess()).then(() => {
-    loadProjects(false);
-    startSmartPolling();
-  });
+  loadProjects(false);
+  startSmartPolling();
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopPolling();

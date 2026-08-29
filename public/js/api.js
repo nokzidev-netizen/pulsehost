@@ -37,6 +37,7 @@ async function api(path, options = {}) {
     }
   }
   if (res.status === 401 && data.code === 'ACCESS_REQUIRED') {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
     if (typeof ensureSiteAccess === 'function') await ensureSiteAccess();
     return api(path, options);
   }
