@@ -264,7 +264,8 @@ body.access-locked { overflow: hidden; }
   background: var(--bg, #0a0a0f); border: 1px solid var(--border, #2a2a3a);
   border-radius: 10px; color: var(--text, #fff); font-family: var(--mono, monospace);
 }
-.access-gate-card .form-error { text-align: left; }
+.access-gate-card .form-error { text-align: left; margin-bottom: 0.75rem; }
+.access-gate-hint { color: var(--text3, #6b6b80); font-size: 0.8rem; margin-top: 0.75rem; }
 
 /* Responsive */
 @media (max-width: 900px) {

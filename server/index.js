@@ -97,7 +97,7 @@ app.get('/api/access/status', (req, res) => {
   });
 });
 
-app.post('/api/access/verify', strictRateLimit(10), async (req, res) => {
+app.post('/api/access/verify', strictRateLimit(30), async (req, res) => {
   if (!siteAccess.isAccessRequired()) {
     return res.json({ ok: true, token: siteAccess.createAccessToken() });
   }

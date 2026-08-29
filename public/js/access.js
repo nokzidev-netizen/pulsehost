@@ -1,8 +1,8 @@
 const ACCESS_TOKEN_KEY = 'pulsehost_access_token';
 
 let accessPromise = null;
-let gateWaiter = null;
-let formReady = false;
+let pendingResolve = null;
+let submitting = false;
 
 function getAccessToken() {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -26,21 +26,37 @@ function showAccessGateOverlay() {
   document.getElementById('access-code-input')?.focus();
 }
 
-function waitForAccessGateSubmit() {
-  showAccessGateOverlay();
-  return new Promise((resolve) => {
-    gateWaiter = resolve;
+async function fetchAccessStatus() {
+  const res = await fetch('/api/access/status', {
+    headers: { 'X-Access-Token': getAccessToken() || '' },
   });
+  return res.json();
 }
 
-function finishGateAttempt(success) {
-  if (!gateWaiter) return;
-  const resolve = gateWaiter;
-  gateWaiter = null;
-  resolve(success);
+async function isAccessGranted() {
+  try {
+    const data = await fetchAccessStatus();
+    return !data.required || data.granted;
+  } catch {
+    return false;
+  }
 }
 
-async function submitAccessCode() {
+function completeAccessFlow() {
+  hideAccessGate();
+  window.dispatchEvent(new Event('pulsehost-access-granted'));
+  if (pendingResolve) {
+    const done = pendingResolve;
+    pendingResolve = null;
+    done(true);
+  }
+}
+
+async function submitAccessCode(e) {
+  if (e) e.preventDefault();
+  if (submitting) return;
+  submitting = true;
+
   const input = document.getElementById('access-code-input');
   const err = document.getElementById('access-gate-error');
   const btn = document.getElementById('access-gate-submit');
@@ -61,22 +77,37 @@ async function submitAccessCode() {
       headers,
       body: JSON.stringify({ code }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Code incorrect');
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
+
+    if (!res.ok) {
+      throw new Error(data.error || `Erreur ${res.status}`);
+    }
+
+    if (!data.token) {
+      throw new Error('Réponse serveur invalide');
+    }
 
     setAccessToken(data.token);
-    hideAccessGate();
-    window.dispatchEvent(new Event('pulsehost-access-granted'));
-    finishGateAttempt(true);
-    return true;
+
+    if (await isAccessGranted()) {
+      completeAccessFlow();
+      return;
+    }
+
+    throw new Error('Code accepté mais session non validée — réessaie');
   } catch (ex) {
     if (err) {
       err.textContent = ex.message || 'Erreur de connexion';
       err.classList.remove('hidden');
     }
-    finishGateAttempt(false);
-    return false;
   } finally {
+    submitting = false;
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Entrer';
@@ -85,52 +116,30 @@ async function submitAccessCode() {
 }
 
 function bindAccessForm() {
-  if (formReady) return;
   const form = document.getElementById('access-gate-form');
-  const btn = document.getElementById('access-gate-submit');
-  const input = document.getElementById('access-code-input');
-  if (!form) return;
-
-  formReady = true;
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    submitAccessCode();
-  });
-  btn?.addEventListener('click', (e) => {
-    e.preventDefault();
-    submitAccessCode();
-  });
-  input?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      submitAccessCode();
-    }
-  });
+  if (!form || form.dataset.bound === '1') return;
+  form.dataset.bound = '1';
+  form.addEventListener('submit', submitAccessCode);
 }
 
 async function runAccessCheck() {
   bindAccessForm();
 
-  try {
-    const res = await fetch('/api/access/status', {
-      headers: { 'X-Access-Token': getAccessToken() || '' },
-    });
-    const data = await res.json();
-    if (!data.required || data.granted) {
-      hideAccessGate();
-      return true;
-    }
-  } catch {
-    /* afficher le gate */
+  if (await isAccessGranted()) {
+    hideAccessGate();
+    return true;
   }
 
-  setAccessToken(null);
+  showAccessGateOverlay();
 
-  let ok = false;
-  while (!ok) {
-    ok = await waitForAccessGateSubmit();
-    if (!ok) await new Promise((r) => setTimeout(r, 200));
+  if (await isAccessGranted()) {
+    hideAccessGate();
+    return true;
   }
+
+  await new Promise((resolve) => {
+    pendingResolve = resolve;
+  });
 
   return true;
 }
@@ -149,17 +158,17 @@ function ensureSiteAccess() {
 
 function lockSiteAccess() {
   accessPromise = null;
+  pendingResolve = null;
   setAccessToken(null);
-  return ensureSiteAccess();
+  showAccessGateOverlay();
+  bindAccessForm();
+  accessPromise = runAccessCheck();
+  return accessPromise;
 }
 
 window.ensureSiteAccess = ensureSiteAccess;
 window.lockSiteAccess = lockSiteAccess;
-window.hideAccessGate = hideAccessGate;
+window.submitAccessCode = submitAccessCode;
 
 bindAccessForm();
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => ensureSiteAccess());
-} else {
-  ensureSiteAccess();
-}
+ensureSiteAccess();
