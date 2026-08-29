@@ -6,10 +6,23 @@
   <title>Panel — PulseHost</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/style.css?v=5" />
   <link rel="stylesheet" href="/css/panel.css" />
 </head>
-<body class="panel-body">
+<body class="panel-body access-locked">
+  <div class="access-gate" id="access-gate">
+    <div class="access-gate-card">
+      <div class="access-gate-icon">🔒</div>
+      <h2>Accès PulseHost</h2>
+      <p>Entre le code d'accès pour continuer.</p>
+      <form id="access-gate-form">
+        <input type="password" id="access-code-input" placeholder="Code d'accès" autocomplete="off" required />
+        <div class="form-error hidden" id="access-gate-error"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="access-gate-submit">Entrer</button>
+      </form>
+    </div>
+  </div>
+
   <aside class="sidebar">
     <a href="/" class="logo sidebar-logo">
       <svg width="22" height="22" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="8" fill="url(#g)"/><path d="M8 18V10l6 4-6 4zm6 0V10l6 4-6 4z" fill="#fff"/><defs><linearGradient id="g" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#3b82f6"/></linearGradient></defs></svg>
@@ -348,22 +361,9 @@
 
   <div id="toast-container"></div>
 
-  <div class="access-gate hidden" id="access-gate">
-    <div class="access-gate-card">
-      <div class="access-gate-icon">🔒</div>
-      <h2>Accès PulseHost</h2>
-      <p>Entre le code d'accès pour continuer.</p>
-      <form id="access-gate-form">
-        <input type="password" id="access-code-input" placeholder="Code d'accès" autocomplete="off" required />
-        <div class="form-error hidden" id="access-gate-error"></div>
-        <button type="submit" class="btn btn-primary btn-block" id="access-gate-submit">Entrer</button>
-      </form>
-    </div>
-  </div>
-
-  <script src="/js/api.js?v=4"></script>
-  <script src="/js/access.js?v=4"></script>
-  <script src="/js/vm.js?v=4"></script>
-  <script src="/js/panel.js?v=4"></script>
+  <script src="/js/api.js?v=5"></script>
+  <script src="/js/access.js?v=5"></script>
+  <script src="/js/vm.js?v=5"></script>
+  <script src="/js/panel.js?v=5"></script>
 </body>
 </html>

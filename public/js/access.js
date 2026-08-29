@@ -25,10 +25,13 @@ function showAccessGate() {
     const err = document.getElementById('access-gate-error');
     const btn = document.getElementById('access-gate-submit');
 
-    const submit = async (e) => {
+    const onSubmit = async (e) => {
       e.preventDefault();
       err?.classList.add('hidden');
-      if (btn) { btn.disabled = true; btn.textContent = 'Vérification...'; }
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Vérification...';
+      }
 
       try {
         const headers = { 'Content-Type': 'application/json' };
@@ -43,8 +46,7 @@ function showAccessGate() {
         if (!res.ok) throw new Error(data.error || 'Code incorrect');
 
         setAccessToken(data.token);
-        overlay.classList.add('hidden');
-        document.body.classList.remove('access-locked');
+        hideAccessGate();
         resolve(true);
       } catch (ex) {
         if (err) {
@@ -53,47 +55,43 @@ function showAccessGate() {
         }
         resolve(false);
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Entrer'; }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Entrer';
+        }
       }
     };
 
-    form?.removeEventListener('submit', submit);
-    form?.addEventListener('submit', submit);
+    if (form) form.onsubmit = onSubmit;
     input?.focus();
   });
 }
 
-async function ensureSiteAccess() {
-  const overlay = document.getElementById('access-gate');
-  let required = true;
-  let granted = false;
+function hideAccessGate() {
+  document.getElementById('access-gate')?.classList.add('hidden');
+  document.body.classList.remove('access-locked');
+}
 
+async function ensureSiteAccess() {
   try {
     const res = await fetch('/api/access/status', {
       headers: { 'X-Access-Token': getAccessToken() || '' },
     });
     const data = await res.json();
-    required = !!data.required;
-    granted = !!data.granted;
+    if (!data.required || data.granted) {
+      hideAccessGate();
+      return true;
+    }
   } catch {
-    required = true;
-    granted = false;
-  }
-
-  if (!required || granted) {
-    overlay?.classList.add('hidden');
-    document.body.classList.remove('access-locked');
-    return true;
+    /* afficher le gate */
   }
 
   setAccessToken(null);
-  document.body.classList.add('access-locked');
-  overlay?.classList.remove('hidden');
 
   let ok = false;
   while (!ok) {
     ok = await showAccessGate();
-    if (!ok) await new Promise((r) => setTimeout(r, 400));
+    if (!ok) await new Promise((r) => setTimeout(r, 300));
   }
 
   return true;
@@ -101,34 +99,13 @@ async function ensureSiteAccess() {
 
 function lockSiteAccess() {
   setAccessToken(null);
-  const overlay = document.getElementById('access-gate');
-  overlay?.classList.remove('hidden');
-  document.body.classList.add('access-locked');
   return ensureSiteAccess();
 }
 
-function primeAccessGate() {
-  const overlay = document.getElementById('access-gate');
-  if (!overlay || getAccessToken()) return;
-  overlay.classList.remove('hidden');
-  document.body.classList.add('access-locked');
-}
-
-function startAccessGate() {
-  if (!window.__accessGateStarted) {
-    window.__accessGateStarted = true;
-    primeAccessGate();
-    window.pulseAccessReady = ensureSiteAccess();
-  }
-  return window.pulseAccessReady;
-}
-
-window.lockSiteAccess = lockSiteAccess;
 window.ensureSiteAccess = ensureSiteAccess;
+window.lockSiteAccess = lockSiteAccess;
+window.hideAccessGate = hideAccessGate;
 
-primeAccessGate();
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', startAccessGate);
-} else {
-  startAccessGate();
-}
+document.addEventListener('DOMContentLoaded', () => {
+  ensureSiteAccess().catch(() => showAccessGate());
+});

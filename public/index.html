@@ -6,9 +6,22 @@
   <title>PulseHost — Hébergez vos bots Discord</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/style.css?v=5" />
 </head>
-<body>
+<body class="access-locked">
+  <div class="access-gate" id="access-gate">
+    <div class="access-gate-card">
+      <div class="access-gate-icon">🔒</div>
+      <h2>Accès PulseHost</h2>
+      <p>Entre le code d'accès pour continuer.</p>
+      <form id="access-gate-form">
+        <input type="password" id="access-code-input" placeholder="Code d'accès" autocomplete="off" required />
+        <div class="form-error hidden" id="access-gate-error"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="access-gate-submit">Entrer</button>
+      </form>
+    </div>
+  </div>
+
   <header class="header">
     <div class="container header-inner">
       <a href="/" class="logo">
@@ -121,20 +134,7 @@
     </div>
   </footer>
 
-  <div class="access-gate hidden" id="access-gate">
-    <div class="access-gate-card">
-      <div class="access-gate-icon">🔒</div>
-      <h2>Accès PulseHost</h2>
-      <p>Entre le code d'accès pour continuer.</p>
-      <form id="access-gate-form">
-        <input type="password" id="access-code-input" placeholder="Code d'accès" autocomplete="off" required />
-        <div class="form-error hidden" id="access-gate-error"></div>
-        <button type="submit" class="btn btn-primary btn-block" id="access-gate-submit">Entrer</button>
-      </form>
-    </div>
-  </div>
-
-  <script src="/js/api.js?v=4"></script>
-  <script src="/js/access.js?v=4"></script>
+  <script src="/js/api.js?v=5"></script>
+  <script src="/js/access.js?v=5"></script>
 </body>
 </html>
