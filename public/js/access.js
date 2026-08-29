@@ -4,13 +4,48 @@ let accessPromise = null;
 let pendingResolve = null;
 let submitting = false;
 
+function storageGet(key) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v) return v;
+  } catch { /* ignore */ }
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key, val) {
+  let ok = false;
+  try {
+    localStorage.setItem(key, val);
+    ok = true;
+  } catch { /* ignore */ }
+  try {
+    sessionStorage.setItem(key, val);
+    ok = true;
+  } catch { /* ignore */ }
+  if (!ok) throw new Error('Stockage navigateur bloqué — désactive le mode strict / cookies');
+}
+
+function storageClear(key) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(key); } catch { /* ignore */ }
+}
+
 function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  return storageGet(ACCESS_TOKEN_KEY);
 }
 
 function setAccessToken(token) {
-  if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
-  else localStorage.removeItem(ACCESS_TOKEN_KEY);
+  if (token) storageSet(ACCESS_TOKEN_KEY, token);
+  else storageClear(ACCESS_TOKEN_KEY);
+}
+
+function setHint(msg) {
+  const hint = document.getElementById('access-gate-hint');
+  if (hint) hint.textContent = msg;
 }
 
 function hideAccessGate() {
@@ -24,6 +59,7 @@ function showAccessGateOverlay() {
   overlay.classList.remove('hidden');
   document.body.classList.add('access-locked');
   document.getElementById('access-code-input')?.focus();
+  setHint('Entre le code puis clique Entrer');
 }
 
 async function fetchAccessStatus() {
@@ -44,6 +80,7 @@ async function isAccessGranted() {
 
 function completeAccessFlow() {
   hideAccessGate();
+  setHint('Accès autorisé ✓');
   window.dispatchEvent(new Event('pulsehost-access-granted'));
   if (pendingResolve) {
     const done = pendingResolve;
@@ -60,9 +97,19 @@ async function submitAccessCode(e) {
   const input = document.getElementById('access-code-input');
   const err = document.getElementById('access-gate-error');
   const btn = document.getElementById('access-gate-submit');
-  const code = input?.value || '';
+  const code = (input?.value || '').trim();
 
-  err?.classList.add('hidden');
+  if (!code) {
+    if (err) {
+      err.textContent = 'Entre un code';
+      err.style.display = 'block';
+    }
+    submitting = false;
+    return;
+  }
+
+  if (err) err.style.display = 'none';
+  setHint('Vérification en cours...');
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Vérification...';
@@ -100,11 +147,12 @@ async function submitAccessCode(e) {
       return;
     }
 
-    throw new Error('Code accepté mais session non validée — réessaie');
+    throw new Error('Code OK mais session refusée — réessaie');
   } catch (ex) {
+    setHint('Entre le code puis clique Entrer');
     if (err) {
       err.textContent = ex.message || 'Erreur de connexion';
-      err.classList.remove('hidden');
+      err.style.display = 'block';
     }
   } finally {
     submitting = false;
@@ -117,9 +165,14 @@ async function submitAccessCode(e) {
 
 function bindAccessForm() {
   const form = document.getElementById('access-gate-form');
+  const btn = document.getElementById('access-gate-submit');
   if (!form || form.dataset.bound === '1') return;
   form.dataset.bound = '1';
   form.addEventListener('submit', submitAccessCode);
+  btn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    submitAccessCode(e);
+  });
 }
 
 async function runAccessCheck() {
@@ -150,6 +203,7 @@ function ensureSiteAccess() {
       accessPromise = null;
       showAccessGateOverlay();
       bindAccessForm();
+      setHint(err.message || 'Erreur — réessaie');
       throw err;
     });
   }
@@ -159,7 +213,7 @@ function ensureSiteAccess() {
 function lockSiteAccess() {
   accessPromise = null;
   pendingResolve = null;
-  setAccessToken(null);
+  storageClear(ACCESS_TOKEN_KEY);
   showAccessGateOverlay();
   bindAccessForm();
   accessPromise = runAccessCheck();

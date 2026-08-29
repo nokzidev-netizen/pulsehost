@@ -16,7 +16,10 @@ async function api(path, options = {}) {
     ...options.headers,
   };
 
-  const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+  let accessToken = null;
+  try {
+    accessToken = localStorage.getItem(ACCESS_TOKEN_KEY) || sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  } catch { /* ignore */ }
   if (accessToken) headers['X-Access-Token'] = accessToken;
 
   if (!(options.body instanceof FormData)) {
