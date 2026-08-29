@@ -19,7 +19,6 @@ const { setupTerminal } = require('./terminal');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_URL = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-const MAX_BOTS = 5;
 const MAX_UPLOAD = 25 * 1024 * 1024;
 
 const upload = multer({
@@ -131,11 +130,6 @@ app.get('/api/projects', ...protectedRoute((req, res) => {
 app.post('/api/projects', ...protectedRoute((req, res) => {
   const { name } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Nom du projet requis' });
-
-  const existing = storage.getBotsByClient(req.clientId);
-  if (existing.length >= MAX_BOTS) {
-    return res.status(429).json({ error: `Limite: ${MAX_BOTS} projets max` });
-  }
 
   const id = uuidv4();
   fileManager.createDefaultProject(id);

@@ -3,8 +3,6 @@ let allBots = [];
 let selectedBotId = null;
 let logsInterval = null;
 
-const PLAN_LIMITS = { free: 3, standard: 5, pro: 10 };
-
 const views = {
   overview: { title: "Vue d'ensemble", sub: 'Bienvenue sur ton panel PulseHost' },
   deploy: { title: 'Déployer', sub: 'Ajoute un nouveau bot Discord' },
@@ -47,7 +45,7 @@ async function init() {
     document.getElementById('user-name').textContent = user.username;
     document.getElementById('user-avatar').textContent = user.username[0].toUpperCase();
     document.getElementById('user-plan').textContent = user.plan || 'free';
-    document.getElementById('stat-limit').textContent = PLAN_LIMITS[user.plan] || 3;
+    document.getElementById('stat-limit').textContent = '∞';
   } catch {
     window.location.href = '/';
     return;
